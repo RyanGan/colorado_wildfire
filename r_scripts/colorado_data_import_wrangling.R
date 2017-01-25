@@ -9,6 +9,8 @@
 library(tidyverse)
 library(data.table)
 library(dplyr)
+library(readxl)
+
 
 # define relative path for csv file
 file_path <- paste0("./data/co_hosp_1015.csv")
@@ -101,4 +103,128 @@ xtabs(~ACCSTATE, co_hosp_df)
 xtabs(~ZIP, co_hosp_df)
 co_hosp_df$ZIP
 summary(co_hosp_df)
+
+
+
+# ------------------------------------------------------------------------------
+# Title: Cleaning CDPHE data
+# Author: Jingyang Liu
+# Date Created: 1/25/17
+# R version: 3.3.2
+# ------------------------------------------------------------------------------
+
+# data cleaning of CDPHE
+# at least a primary ICD9 code present
+co_hosp_w_outcome_df <- co_hosp_df %>% filter(!is.na(dx1)) %>% 
+  # filter to only ER or urgent care
+  filter(ADMTNO==1|ADMTNO==2) %>% 
+  # indicator for male=0, female=1
+  mutate(sex_ind =ifelse(SEX == 2, 1, 
+                  ifelse(SEX == 1, 0, NA)),
+         age_ind = ifelse(AGEYRS < 15, 0,
+                   ifelse(AGEYRS >= 15 & AGEYRS < 65, 1,
+                   ifelse(AGEYRS >= 65 & AGEYRS <=110, 2, NA)))
+         ) # end of mutate
+
+ggplot(co_hosp_w_outcome_df, aes(co_hosp_w_outcome_df$AGEYRS)) +
+         geom_density(aes(group=co_hosp_w_outcome_df$age_ind,
+                          color=co_hosp_w_outcome_df$age_ind)) + xlim(0,110)
+
+# Creating vectors of outcome claims -------------------------------------------
+# import chars diagnosis code key
+icd9_key <- read_excel("CMS32_DESC_LONG_SHORT_DX.xlsx")
+
+# changing variable name, 'code' for 'diagonsis code'.
+summary(icd9_key)
+names(icd9_key)[1:3] <- c("code","long","short")
+
+# Coding Respiratory Disease ICD-9 Outcomes ------------------------------------
+# All Respiratory Diseases 460 to 519 ------------------------------------------
+which(icd9_key$code == '460') # row 5067 (cold) start of resp outcomes
+# last icd9 code in resp disease is 519.9 (unsp dis of resp sys)
+which(icd9_key$code == '5199') # row 5321 end of resp outcomes
+
+# sort by icd9 code add row variable 
+icd9_key$X <- NULL
+icd9_key <- arrange(icd9_key, code) %>%
+  mutate(n = as.numeric(row.names(icd9_key)))
+
+resp_icd9 <- filter(icd9_key, n >= 5067 & n <= 5321) %>%
+  select(code)
+c
+resp_icd9 <- as.vector(as.matrix(resp_icd9))   
+
+# CHARS indicator of resp_icd9
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(resp1 = ifelse(dx1 %in% resp_icd9, 1, 0),
+         resp2 = ifelse(dx2 %in% resp_icd9, 1, 0),
+         resp3 = ifelse(dx3 %in% resp_icd9, 1, 0),
+         resp4 = ifelse(dx4 %in% resp_icd9, 1, 0),
+         resp5 = ifelse(dx5 %in% resp_icd9, 1, 0),
+         # sum up the indicators
+         resp_sum = (resp1 + resp2 + resp3 + resp4 +resp5 ),
+         resp_dx = ifelse(resp_sum>0, 1, 0))
+
+# primary dx of any resp outcome
+xtabs(~ resp1, co_hosp_w_outcome_df)
+188340/(188340+870418) # 0.1779
+
+# Asthma, ICD-9 493 ------------------------------------------------------------
+# try asthma 493 to 49392; identify rows with following code
+which(icd9_key$code == '49300') # start of asthma is row 5206
+which(icd9_key$code == '49392') # end of asthma is row 5219
+
+# limit just to asthma code and just the diagnosis column
+icd9_check <- filter(icd9_key, n >= 5206 & n <= 5219) 
+icd9_check
+
+asthma_icd9 <- filter(icd9_key, n >= 5206 & n <= 5219) %>%
+  select(code)
+# convert to vector
+asthma_icd9 <- as.vector(as.matrix(asthma_icd9))   
+
+# now can I make a new variable, asthma1, that indicates an asthma claim?
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(asthma1 = ifelse(dx1 %in% asthma_icd9, 1, 0),
+         asthma2 = ifelse(dx2 %in% asthma_icd9, 1, 0),
+         asthma3 = ifelse(dx3 %in% asthma_icd9, 1, 0),
+         asthma4 = ifelse(dx4 %in% asthma_icd9, 1, 0),
+         asthma5 = ifelse(dx5 %in% asthma_icd9, 1, 0),
+         # sum up the asthma indicators
+         asthma_sum = (asthma1 + asthma2 + asthma3 + asthma4 + asthma5),
+         asthma_dx = ifelse(asthma_sum>0, 1, 0))
+
+# check if the binary asthma_dx code aligns with the sum
+asthma_dx_check <- table(co_hosp_w_outcome_df$asthma_dx, co_hosp_w_outcome_df$asthma_sum)
+asthma_dx_check
+
+summary(co_hosp_w_outcome_df)
+
+# seems to do the same thing, but both codes could be incorrect. i should check
+# the number of asthma claims in diagnoses 1 
+asthma_claims <- subset(co_hosp_w_outcome_df, dx1 %in% asthma_icd9)
+asthma_claims$DIAG1 <- as.factor(asthma_claims$dx1)
+# check asthma claims subset
+summary(asthma_claims$dx1)
+
+# number of asthma claims; first convert claims to as.factor
+co_hosp_w_outcome_df$asthma_dx <- as.factor(co_hosp_w_outcome_df$asthma_dx)
+
+summary(co_hosp_w_outcome_df$asthma_dx)
+# percentage of claims that are asthma claims
+(69429/(69429+989329)) * 100 # 6.558%
+
+rm(asthma_claims) # remove to save space
+# 6.558% of claims in Washington in 2012 were related to asthma
+
+# checking if all data are in right range
+xtabs(~asthma1 + dx1, asthma_check )
+glimpse(asthma_check)
+asthma_check <- co_hosp_w_outcome_df %>% filter(asthma1 == 1)
+
+# Creating a Permanent DataFrame -----------------------------------------------
+# write a permanent chars confidential dataset
+write_path <- paste0('C:/Users/jyliu/Desktop/local_git_repo/colorado_wildfire/',
+                     'co_hosp_w_outcome_df.csv')
+write_csv(co_hosp_w_outcome_df, write_path)
 
