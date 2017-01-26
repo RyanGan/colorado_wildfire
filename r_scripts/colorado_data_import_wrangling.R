@@ -108,12 +108,10 @@ summary(co_hosp_df)
 
 # ------------------------------------------------------------------------------
 # Title: Cleaning CDPHE data
-# Author: Jingyang Liu
 # Date Created: 1/25/17
-# R version: 3.3.2
 # ------------------------------------------------------------------------------
 
-# data cleaning of CDPHE
+# data cleaning of CDPHE -------------------------------------------------------
 # at least a primary ICD9 code present
 co_hosp_w_outcome_df <- co_hosp_df %>% filter(!is.na(dx1)) %>% 
   # filter to only ER or urgent care
@@ -151,7 +149,7 @@ icd9_key <- arrange(icd9_key, code) %>%
 
 resp_icd9 <- filter(icd9_key, n >= 5067 & n <= 5321) %>%
   select(code)
-c
+# convert to vector
 resp_icd9 <- as.vector(as.matrix(resp_icd9))   
 
 # CHARS indicator of resp_icd9
@@ -163,7 +161,8 @@ co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
          resp5 = ifelse(dx5 %in% resp_icd9, 1, 0),
          # sum up the indicators
          resp_sum = (resp1 + resp2 + resp3 + resp4 +resp5 ),
-         resp_dx = ifelse(resp_sum>0, 1, 0))
+         resp_dx = ifelse(resp_sum>0, 1, 0)
+         ) # end of mutate
 
 # primary dx of any resp outcome
 xtabs(~ resp1, co_hosp_w_outcome_df)
@@ -192,7 +191,8 @@ co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
          asthma5 = ifelse(dx5 %in% asthma_icd9, 1, 0),
          # sum up the asthma indicators
          asthma_sum = (asthma1 + asthma2 + asthma3 + asthma4 + asthma5),
-         asthma_dx = ifelse(asthma_sum>0, 1, 0))
+         asthma_dx = ifelse(asthma_sum>0, 1, 0)
+         ) # end of mutate
 
 # check if the binary asthma_dx code aligns with the sum
 asthma_dx_check <- table(co_hosp_w_outcome_df$asthma_dx, co_hosp_w_outcome_df$asthma_sum)
@@ -203,28 +203,401 @@ summary(co_hosp_w_outcome_df)
 # seems to do the same thing, but both codes could be incorrect. i should check
 # the number of asthma claims in diagnoses 1 
 asthma_claims <- subset(co_hosp_w_outcome_df, dx1 %in% asthma_icd9)
-asthma_claims$DIAG1 <- as.factor(asthma_claims$dx1)
+asthma_claims$dx1 <- as.factor(asthma_claims$dx1)
 # check asthma claims subset
 summary(asthma_claims$dx1)
 
-# number of asthma claims; first convert claims to as.factor
-co_hosp_w_outcome_df$asthma_dx <- as.factor(co_hosp_w_outcome_df$asthma_dx)
+# number of asthma claims; first convert claims to as.factor ???
+# co_hosp_w_outcome_df$asthma_dx <- as.factor(co_hosp_w_outcome_df$asthma_dx)
 
 summary(co_hosp_w_outcome_df$asthma_dx)
 # percentage of claims that are asthma claims
 (69429/(69429+989329)) * 100 # 6.558%
 
+# checking if all data are in right range
+asthma_check <- co_hosp_w_outcome_df %>% filter(asthma1 == 1)
+xtabs(~asthma1 + dx1, asthma_check )
+glimpse(asthma_check)
+
 rm(asthma_claims) # remove to save space
 # 6.558% of claims in Washington in 2012 were related to asthma
 
-# checking if all data are in right range
-xtabs(~asthma1 + dx1, asthma_check )
-glimpse(asthma_check)
-asthma_check <- co_hosp_w_outcome_df %>% filter(asthma1 == 1)
+
+
+# ------------------------------------------------------------------------------
+# Title: For other disease outcomes for case study
+# Date Created: 1/26/17
+# ------------------------------------------------------------------------------
+
+
+# Pneumonia ICD-9 code 480-486 -------------------------------------------------
+# id the rows of interest
+which(icd9_key$code == '4800') # row 5149, start pneumonia
+which(icd9_key$code == '486') # row 5183, end pneumonia
+# code df 
+pneumonia_icd9 <- filter(icd9_key, n >= 5149 & n <= 5183) %>%
+  select(code)
+# convert to vector
+pneumonia_icd9 <- as.vector(as.matrix(pneumonia_icd9))
+
+# make indicator of pneumonia
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(pneum1 = ifelse(dx1 %in% pneumonia_icd9, 1, 0),
+         pneum2 = ifelse(dx2 %in% pneumonia_icd9, 1, 0),
+         pneum3 = ifelse(dx3 %in% pneumonia_icd9, 1, 0),
+         pneum4 = ifelse(dx4 %in% pneumonia_icd9, 1, 0),
+         pneum5 = ifelse(dx5 %in% pneumonia_icd9, 1, 0),
+         # sum up the pneumonia indicators
+         pneum_sum = (pneum1 + pneum2 + pneum3 + pneum4 + pneum5),
+         pneum_dx = ifelse(pneum_sum>0, 1, 0)
+         ) #end of mutate
+
+# primary diagnosis
+xtabs(~ pneum1, co_hosp_w_outcome_df)
+60255/(60255+998503) # 5.691%
+# any diagnosis
+xtabs(~ pneum_dx, co_hosp_w_outcome_df)
+127584/(127584+931174) # 12.05%
+
+# Acute bronchitis ICD-9 codes 466 to 466.19 -----------------------------------
+which(icd9_key$code == '4660') # row 5090, start acute bronch
+which(icd9_key$code == '46619') # row 5092, end acute bronch
+
+# code df of acute bronchitis codes
+acute_bronch_icd9 <- filter(icd9_key, n >= 5090 & n <= 5092) %>% 
+  select(code)
+# convert to vector
+acute_bronch_icd9 <- as.vector(as.matrix(acute_bronch_icd9))  
+
+# code variables of acute bronchitis
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(acute_bronch1 = ifelse(dx1 %in% acute_bronch_icd9, 1, 0),
+         acute_bronch2 = ifelse(dx2 %in% acute_bronch_icd9, 1, 0),
+         acute_bronch3 = ifelse(dx3 %in% acute_bronch_icd9, 1, 0),
+         acute_bronch4 = ifelse(dx4 %in% acute_bronch_icd9, 1, 0),
+         acute_bronch5 = ifelse(dx5 %in% acute_bronch_icd9, 1, 0),
+         # sum up the pneumonia indicators
+         acute_bronch_sum = (acute_bronch1 + acute_bronch2 + acute_bronch3 + 
+                               acute_bronch4 +acute_bronch5),
+         acute_bronch_dx = ifelse(acute_bronch_sum>0, 1, 0)
+         ) #end of mutate
+
+# primary diagnosis (17983 events)
+xtabs(~ acute_bronch1, co_hosp_w_outcome_df)
+17983/(17983+1040775) # 1.70%
+# any diagnosis
+xtabs(~ acute_bronch_dx, co_hosp_w_outcome_df)
+23793/(23793+1034965) # 2.247%
+
+# check coding outcome
+check <- filter(co_hosp_w_outcome_df, acute_bronch1 == 1)
+xtabs(~dx1 + acute_bronch1, check)
+rm(check)
+
+# COPD, ICD9 490 to 492, 494, and 496 ------------------------------------------
+copd_icd9 <- c('490', '4910','4911','49120','49121','49122','4918','4919', '4920',
+               '4928', '4940', '4941', '496') 
+
+# now can I make a new variable, copdn, that indicates an asthma claim?
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(copd1 = ifelse(dx1 %in% copd_icd9, 1, 0),
+         copd2 = ifelse(dx2 %in% copd_icd9, 1, 0),
+         copd3 = ifelse(dx3 %in% copd_icd9, 1, 0),
+         copd4 = ifelse(dx4 %in% copd_icd9, 1, 0),
+         copd5 = ifelse(dx5 %in% copd_icd9, 1, 0),
+         # sum up the pneumonia indicators
+         copd_sum = (copd1 + copd2 + copd3 + copd4 +copd5),
+         copd_dx = ifelse(copd_sum>0, 1, 0)
+  ) #end of mutate
+
+# check copd coding
+xtabs(~copd_dx, co_hosp_w_outcome_df)
+97626/1058758 # 9.22% of claims for copd
+xtabs(~copd1, co_hosp_w_outcome_df)
+26369/1058758 # 2.49% of claims for primary copd
+
+copd_claims <- filter(co_hosp_w_outcome_df, dx1 %in% copd_icd9)
+copd_claims$dx1 <- as.factor(copd_claims$dx1)
+# check asthma claims subset
+summary(copd_claims$dx1)
+rm(copd_claims) # remove to save space
+
+# Cardiovascular Diseases (general CVD), ICD-9: 390 to 459 ---------------------
+which(icd9_key$code == '390') # starts at 4593, rheumatic fever
+which(icd9_key$code == '4599') # ends at 5066, unsp circulatory disorder
+
+# code df of stroke codes 
+# code check
+icd9_check <- filter(icd9_key, n >= 4593 & n <= 5066)
+icd9_check # check codes
+
+cvd_icd9 <- filter(icd9_key, n >= 4593 & n <= 5066) %>%
+  select(code)
+# convert to vector
+cvd_icd9 <- as.vector(as.matrix(cvd_icd9)) 
+
+# make indicator of cvd_icd9
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(cvd1 = ifelse(dx1 %in% cvd_icd9, 1, 0),
+         cvd2 = ifelse(dx2 %in% cvd_icd9, 1, 0),
+         cvd3 = ifelse(dx3 %in% cvd_icd9, 1, 0),
+         cvd4 = ifelse(dx4 %in% cvd_icd9, 1, 0),
+         cvd5 = ifelse(dx5 %in% cvd_icd9, 1, 0),
+         # sum up the pneumonia indicators
+         cvd_sum = (cvd1 + cvd2 + cvd3 + cvd4 + cvd5),
+         cvd_dx = ifelse(cvd_sum>0, 1, 0)
+  ) #end of mutate
+
+xtabs(~ cvd1, co_hosp_w_outcome_df)
+225284/1058758 # 21.28%
+
+# Ischemic heart diseases, ICD-9 codes 410-413 ---------------------------------
+which(icd9_key$code == '41000') # starts at 4656, acute myo infarc
+which(icd9_key$code == '4139') # ends 4693, other us angina pectoris
+
+# code df of ihd codes (includes mi)
+ihd_icd9 <- filter(icd9_key, n >= 4656 & n <= 4693)
+ihd_icd9 # check codes
+
+ihd_icd9 <- filter(icd9_key, n >= 4656 & n <= 4693) %>% 
+  select(code)
+# convert to vector
+ihd_icd9 <- as.vector(as.matrix(ihd_icd9))  
+
+# make indicator of ihd_icd9
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(ihd1 = ifelse(dx1 %in% ihd_icd9, 1, 0),
+         ihd2 = ifelse(dx2 %in% ihd_icd9, 1, 0),
+         ihd3 = ifelse(dx3 %in% ihd_icd9, 1, 0),
+         ihd4 = ifelse(dx4 %in% ihd_icd9, 1, 0),
+         ihd5 = ifelse(dx5 %in% ihd_icd9, 1, 0),
+         # sum up the pneumonia indicators
+         ihd_sum = (ihd1 + ihd2 + ihd3 + ihd4 + ihd5),
+         ihd_dx = ifelse(ihd_sum>0, 1, 0)
+  ) #end of mutate
+
+xtabs(~ ihd1, co_hosp_w_outcome_df) # 35401 primary events
+35401/1058758 # 3.34%
+
+# Arrhythmias ICD-9 code 427 ---------------------------------------------------
+which(icd9_key$code == '4270') # starts at 4780, acute myo infarc
+which(icd9_key$code == '4279') # ends 4793, other us angina pectoris
+
+# code df of arrhyth codes 
+icd9_check <- filter(icd9_key, n >= 4780 & n <= 4793)
+icd9_check # check codes
+
+arrhythmia_icd9 <- filter(icd9_key, n >= 4780 & n <= 4793) %>%
+  select(code)
+# convert to vector
+arrhythmia_icd9 <- as.vector(as.matrix(arrhythmia_icd9))
+
+# make indicator of arrhythmia_icd9
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(arrhythmia1 = ifelse(dx1 %in% arrhythmia_icd9, 1, 0),
+         arrhythmia2 = ifelse(dx2 %in% arrhythmia_icd9, 1, 0),
+         arrhythmia3 = ifelse(dx3 %in% arrhythmia_icd9, 1, 0),
+         arrhythmia4 = ifelse(dx4 %in% arrhythmia_icd9, 1, 0),
+         arrhythmia5 = ifelse(dx5 %in% arrhythmia_icd9, 1, 0),
+         # sum up the pneumonia indicators
+         arrhythmia_sum = (arrhythmia1 + arrhythmia2 + arrhythmia3 + arrhythmia4 + arrhythmia5),
+         arrhythmia_dx = ifelse(arrhythmia_sum>0, 1, 0)
+  ) #end of mutate
+
+xtabs(~ arrhythmia_dx, co_hosp_w_outcome_df)
+128218/1058758 # 12.11%
+
+# Heart Failure, ICD-9 428 -----------------------------------------------------
+which(icd9_key$code == '4280') # starts at 4794, congestive heart failure
+which(icd9_key$code == '4289') # ends at 4808, heart failure
+
+# code df of hf codes 
+# code check
+icd9_check <- filter(icd9_key, n >= 4794 & n <= 4808)
+icd9_check # check codes
+
+hf_icd9 <- filter(icd9_key, n >= 4794 & n <= 4808) %>%
+  select(code)
+# convert to vector
+hf_icd9 <- as.vector(as.matrix(hf_icd9))  
+
+# make indicator of hf_icd9
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(hf1 = ifelse(dx1 %in% hf_icd9, 1, 0),
+         hf2 = ifelse(dx2 %in% hf_icd9, 1, 0),
+         hf3 = ifelse(dx3 %in% hf_icd9, 1, 0),
+         hf4 = ifelse(dx4 %in% hf_icd9, 1, 0),
+         hf5 = ifelse(dx5 %in% hf_icd9, 1, 0),
+         # sum up the pneumonia indicators
+         hf_sum = (hf1 + hf2 + hf3 + hf4 + hf5),
+         hf_dx = ifelse(hf_sum>0, 1, 0)
+  ) #end of mutate
+
+xtabs(~ hf1, co_hosp_w_outcome_df)
+37055/1058758 # 3.50%
+
+# Cerebrovascular Diseases, ICD-9 430-438 --------------------------------------
+# Consider refining outcome definition to be more specific
+which(icd9_key$code == '430') # starts at 4823, brain hemorage
+which(icd9_key$code == '4389') # ends at 4891, late effects of cerevas dis
+
+# code df of stroke codes 
+# code check
+icd9_check <- filter(icd9_key, n >= 4823 & n <= 4891)
+icd9_check # check codes
+
+cereb_vas_icd9 <- filter(icd9_key, n >= 4823 & n <= 4891) %>%
+  select(code)
+# convert to vector
+cereb_vas_icd9 <- as.vector(as.matrix(cereb_vas_icd9)) 
+
+# make indicator of cereb_vas_icd9
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(cereb_vas1 = ifelse(dx1 %in% cereb_vas_icd9, 1, 0),
+         cereb_vas2 = ifelse(dx2 %in% cereb_vas_icd9, 1, 0),
+         cereb_vas3 = ifelse(dx3 %in% cereb_vas_icd9, 1, 0),
+         cereb_vas4 = ifelse(dx4 %in% cereb_vas_icd9, 1, 0),
+         cereb_vas5 = ifelse(dx5 %in% cereb_vas_icd9, 1, 0),
+         # sum up the pneumonia indicators
+         cereb_vas_sum = (cereb_vas1 + cereb_vas2 + cereb_vas3 + cereb_vas4 + cereb_vas5),
+         cereb_vas_dx = ifelse(cereb_vas_sum>0, 1, 0)
+  ) #end of mutate
+
+xtabs(~ cereb_vas1, co_hosp_w_outcome_df)
+43289/1058758 # 4.09%
+
+# Myocardial Infarction ICD-9 code 410.00 - 410.92 -----------------------------
+which(icd9_key$code == '41000') # starts at 4656, congestive heart failure
+which(icd9_key$code == '41092') # ends at 4685, heart failure
+
+# code check
+icd9_check <- filter(icd9_key, n >= 4656 & n <= 4685)
+icd9_check # check codes
+
+mi_icd9 <- filter(icd9_key, n >= 4656 & n <= 4685) %>%
+  select(code)
+# convert to vector
+mi_icd9 <- as.vector(as.matrix(mi_icd9))  
+
+# variables indicating MI claim
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(mi1 = ifelse(dx1 %in% mi_icd9, 1, 0),
+         mi2 = ifelse(dx2 %in% mi_icd9, 1, 0),
+         mi3 = ifelse(dx3 %in% mi_icd9, 1, 0),
+         mi4 = ifelse(dx4 %in% mi_icd9, 1, 0),
+         mi5 = ifelse(dx5 %in% mi_icd9, 1, 0),
+         # sum up the pneumonia indicators
+         mi_sum = (mi1 + mi2 + mi3 + mi4 + mi5),
+         mi_dx = ifelse(mi_sum>0, 1, 0)
+  ) #end of mutate
+
+# check if the binary mi_dx code aligns with the sum
+mi_dx_check <- table(co_hosp_w_outcome_df$mi_dx, co_hosp_w_outcome_df$mi_sum)
+mi_dx_check
+
+summary(as.factor(co_hosp_w_outcome_df$mi1))
+33841/1058758 # 3.20%
+# seems to do the same thing, but both codes could be incorrect. i should check
+# the number of mi claims in diagnoses 1 (10,459 claims)
+mi_claims <- subset(co_hosp_w_outcome_df, dx1 %in% mi_icd9)
+# check asthma claims subset
+summary(as.factor(mi_claims$dx1))
+# very few with 2 designation indicating subsequent visit, but I still might
+# need to remove due to possible misclassification
+
+# Coding in a outcomes that should not be associated with smoke ----------------
+
+# Broken Arm ICD-9 813 ---------------------------------------------------------
+which(icd9_key$code == '81300') # starts at 10094, fracture of radius and ulna
+which(icd9_key$code == '81393') # ends at 10140, late effects of cerevas dis
+
+# code df of broken arms
+# code check
+icd9_check <- filter(icd9_key, n >= 10094 & n <= 10140)
+icd9_check # check codes
+
+broken_arm_icd9 <- filter(icd9_key, n >= 10094 & n <= 10140) %>%
+  select(code)
+# convert to vector
+broken_arm_icd9 <- as.vector(as.matrix(broken_arm_icd9)) 
+
+# code variables of broken arm
+co_hosp_w_outcome_df <- co_hosp_w_outcome_df %>%
+  mutate(broken_arm1 = ifelse(dx1 %in% broken_arm_icd9, 1, 0),
+         broken_arm2 = ifelse(dx2 %in% broken_arm_icd9, 1, 0),
+         broken_arm3 = ifelse(dx3 %in% broken_arm_icd9, 1, 0),
+         broken_arm4 = ifelse(dx4 %in% broken_arm_icd9, 1, 0),
+         broken_arm5 = ifelse(dx5 %in% broken_arm_icd9, 1, 0),
+         # sum up the pneumonia indicators
+         broken_arm_sum = (broken_arm1 + broken_arm2 + broken_arm3 + broken_arm4 + broken_arm5),
+         broken_arm_dx = ifelse(broken_arm_sum>0, 1, 0)
+  ) #end of mutate
+
+# primary diagnosis (1944 events)
+xtabs(~ broken_arm1, co_hosp_w_outcome_df)
+# any diagnosis
+xtabs(~ broken_arm_dx, co_hosp_w_outcome_df)
+# check coding outcome (3277 events)
+check <- filter(co_hosp_w_outcome_df, broken_arm1 == 1)
+xtabs(~dx1 + broken_arm1, check)
+
+# end outcome coding for ICD-9 codes -------------------------------------------
+
+# checking if the variables of diseases is missing or wrong
+summary(co_hosp_w_outcome_df)
+
 
 # Creating a Permanent DataFrame -----------------------------------------------
 # write a permanent chars confidential dataset
-write_path <- paste0('C:/Users/jyliu/Desktop/local_git_repo/colorado_wildfire/',
-                     'co_hosp_w_outcome_df.csv')
-write_csv(co_hosp_w_outcome_df, write_path)
+# write_path <- paste0('C:/Users/jyliu/Desktop/local_git_repo/colorado_wildfire/',
+# 'co_hosp_w_outcome_df.csv')
+# write_csv(co_hosp_w_outcome_df, write_path)
+
+
+# Case crossover for diseases --------------------------------------------------
+library(lubridate)
+
+# Asthma1
+co_hosp_w_outcome_df2 <- co_hosp_w_outcome_df %>%
+  # filter for Colorado State
+  filter(ZIP>=80001|ZIP<=81658) %>%
+  filter(asthma1==1) %>%
+  mutate(id = seq(1, nrow(.), by = 1)) %>%
+  select(id, admit, sex_ind, age_ind, ZIP, RACE, asthma1) %>%
+  mutate(date_admit = admit)
+
+id_date_df <- data_frame(id = NA, ZIP = NA, age_ind = NA, date_admit = NA, sex_ind = NA, 
+                         RACE = NA, asthma1 = NA, date_before = NA, date_after = NA)
+
+# code dates for each id up to two months before and after the event
+co_hosp_w_outcome_df2$date_admit <- as.Date(co_hosp_w_outcome_df2$admit, "%m/%d/%Y")
+
+
+co_hosp_w_outcome_df2$date_before <- co_hosp_w_outcome_df2$date_admit - 7
+co_hosp_w_outcome_df2$date_after <- co_hosp_w_outcome_df2$date_admit + 7
+
+
+# Don's know how to copy table yet...
+
+aaa <- do.call("bind_rows", replicate(3, co_hosp_w_outcome_df2$date_admit, simplify = F))
+
+bbb<- bind_rows(co_hosp_w_outcome_df2, co_hosp_w_outcome_df2)
+
+
+
+# covariates to preserve
+covariate <- filter(outcome_id, id == i) %>% 
+  select(id, (outcome_col2), ZIPCODE, date_admit, date_discharge, 
+         length_stay, AGE, age_cat, sex_num, race_nhw)
+# replicate covariates length of counterfactual dates
+cov_df <- do.call("bind_rows", replicate(length(date), covariate, simplify = F))
+
+# bind unique id and date of the year with covariates
+id_date <- data_frame(date) %>% bind_cols(cov_df)
+# iteration which binds rows of unique ids
+id_date_df <- bind_rows(id_date_df, id_date)
+
+
+
+
 
