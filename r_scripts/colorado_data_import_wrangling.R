@@ -561,18 +561,24 @@ library(lubridate)
 co_hosp_w_outcome_df2 <- co_hosp_w_outcome_df %>%
   # filter for Colorado State
   filter(ZIP>=80001|ZIP<=81658) %>%
+  # filter asthma1
   filter(asthma1==1) %>%
+  # add ID
   mutate(id = seq(1, nrow(.), by = 1)) %>%
+  # select some important infomation
   select(id, admit, sex_ind, age_ind, ZIP, RACE, asthma1) %>%
-  mutate(date_admit = admit)
+  # add outcome and new admit date
+  mutate(date_admit = admit,
+         outcome_asthma1 = 1)
 
+# maybe be useful later
 id_date_df <- data_frame(id = NA, ZIP = NA, age_ind = NA, date_admit = NA, sex_ind = NA, 
                          RACE = NA, asthma1 = NA, date_before = NA, date_after = NA)
 
 # code dates for each id up to two months before and after the event
 co_hosp_w_outcome_df2$date_admit <- as.Date(co_hosp_w_outcome_df2$admit, "%m/%d/%Y")
 
-
+# use them later, after copying whole data
 co_hosp_w_outcome_df2$date_before <- co_hosp_w_outcome_df2$date_admit - 7
 co_hosp_w_outcome_df2$date_after <- co_hosp_w_outcome_df2$date_admit + 7
 
@@ -582,6 +588,7 @@ co_hosp_w_outcome_df2$date_after <- co_hosp_w_outcome_df2$date_admit + 7
 aaa <- do.call("bind_rows", replicate(3, co_hosp_w_outcome_df2$date_admit, simplify = F))
 
 bbb<- bind_rows(co_hosp_w_outcome_df2, co_hosp_w_outcome_df2)
+
 
 
 
