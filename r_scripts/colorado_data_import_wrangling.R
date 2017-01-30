@@ -549,61 +549,9 @@ summary(co_hosp_w_outcome_df)
 
 # Creating a Permanent DataFrame -----------------------------------------------
 # write a permanent chars confidential dataset
-# write_path <- paste0('C:/Users/jyliu/Desktop/local_git_repo/colorado_wildfire/',
-# 'co_hosp_w_outcome_df.csv')
-# write_csv(co_hosp_w_outcome_df, write_path)
-
-
-# Case crossover for diseases --------------------------------------------------
-library(lubridate)
-
-# Asthma1
-co_hosp_w_outcome_df2 <- co_hosp_w_outcome_df %>%
-  # filter for Colorado State
-  filter(ZIP>=80001|ZIP<=81658) %>%
-  # filter asthma1
-  filter(asthma1==1) %>%
-  # add ID
-  mutate(id = seq(1, nrow(.), by = 1)) %>%
-  # select some important infomation
-  select(id, admit, sex_ind, age_ind, ZIP, RACE, asthma1) %>%
-  # add outcome and new admit date
-  mutate(date_admit = admit,
-         outcome_asthma1 = 1)
-
-# maybe be useful later
-id_date_df <- data_frame(id = NA, ZIP = NA, age_ind = NA, date_admit = NA, sex_ind = NA, 
-                         RACE = NA, asthma1 = NA, date_before = NA, date_after = NA)
-
-# code dates for each id up to two months before and after the event
-co_hosp_w_outcome_df2$date_admit <- as.Date(co_hosp_w_outcome_df2$admit, "%m/%d/%Y")
-
-# use them later, after copying whole data
-co_hosp_w_outcome_df2$date_before <- co_hosp_w_outcome_df2$date_admit - 7
-co_hosp_w_outcome_df2$date_after <- co_hosp_w_outcome_df2$date_admit + 7
-
-
-# Don's know how to copy table yet...
-
-aaa <- do.call("bind_rows", replicate(3, co_hosp_w_outcome_df2$date_admit, simplify = F))
-
-bbb<- bind_rows(co_hosp_w_outcome_df2, co_hosp_w_outcome_df2)
-
-
-
-
-# covariates to preserve
-covariate <- filter(outcome_id, id == i) %>% 
-  select(id, (outcome_col2), ZIPCODE, date_admit, date_discharge, 
-         length_stay, AGE, age_cat, sex_num, race_nhw)
-# replicate covariates length of counterfactual dates
-cov_df <- do.call("bind_rows", replicate(length(date), covariate, simplify = F))
-
-# bind unique id and date of the year with covariates
-id_date <- data_frame(date) %>% bind_cols(cov_df)
-# iteration which binds rows of unique ids
-id_date_df <- bind_rows(id_date_df, id_date)
-
+write_path <- paste0('C:/Users/jyliu/Desktop/local_git_repo/colorado_wildfire/',
+  'co_hosp_w_outcome_df.csv')
+write_csv(co_hosp_w_outcome_df, write_path)
 
 
 
