@@ -107,9 +107,10 @@ cov_df <- cov_df %>%
 
 ### Every diseases
 # choose a small sample
-disease1 <- disease[1:100,]
+disease1 <- disease[1:5000,]
 
-var_list <- c('arrhythmia1', 'cereb_vas1', 'ihd1', 'hf1')
+var_list <- c('asthma1', 'copd_ex1', 'mi1', 'resp1', 
+              'pneum_bronch1', 'arrhythmia1', 'cereb_vas1', 'ihd1', 'hf1')
 
 
 
@@ -201,11 +202,64 @@ total_time
 start <- Sys.time()
 for(j in var_list){ # begin first loop of variable names (outcomes)
   
-  # Case-Crossover loop ----------------------------------------------------------
-  outcome_col <- which(colnames(disease1) == j) # use to keep outcome var
+  # Case-Crossover loop --------------------------------------------------------
+  outcome_col <- which(colnames(disease) == j) # use to keep outcome var, col number
   
-  outcome_id <- disease1 %>%
-    filter(disease1[[j]] == 1) %>% # jth outcome
+  outcome_id <- disease %>%
+    filter(disease[[j]] == 1) %>% # jth outcome
+    filter(date_admit >= '2012-07-01' & 
+             date_admit <= '2012-10-31') %>% 
+    arrange(date_admit) %>%
+    mutate(id = seq(1, nrow(.), by = 1)) %>%
+    select(cdpheid, (outcome_col), # keep in bracket for outcome var num
+           admit, date_admit, dx1,   ZIP, 
+           county_final, WRFGRID_ID, RACE, sex_ind, age_ind)
+  
+  outcome_col2 <- which(colnames(outcome_id) == j) # use to keep outcome var
+  
+  # create dataset to populate
+  id_date_df <- data_frame(cdpheid = NA, admit = NA, date_admit = NA, dx1 = NA,   
+                           ZIP = NA, county_final = NA, WRFGRID_ID = NA, 
+                           RACE = NA, sex_ind = NA, age_ind = NA)
+  
+  # begin second loop to create counterfactual observations for each case subject
+  for (i in 1:nrow(outcome_id)){
+    # code dates for each id up to two months before and after the event
+    date <- seq(as.Date(outcome_id[[i, 3]] - 56), 
+                as.Date(outcome_id[[i, 3]] + 56), by = '1 week')
+    
+    # covariates to preserve
+    covariate <- filter(outcome_id, id == i) %>% 
+      select(cdpheid, (outcome_col2), # keep in bracket for outcome var num
+             admit, date_admit, dx1,   ZIP, 
+             county_final, WRFGRID_ID, RACE, sex_ind, age_ind)
+    # replicate covariates length of counterfactual dates
+    cov_df <- do.call("bind_rows", replicate(length(date), covariate, simplify = F))
+    
+    # bind unique id and date of the year with covariates
+    id_date <- data_frame(date) %>% bind_cols(cov_df)
+    # iteration which binds rows of unique ids
+    id_date_df <- bind_rows(id_date_df, id_date)
+  } # end inner lop
+  
+  
+  # Create a permanent case-cross over dataset
+  file_name <- paste(j, 'jul_to_oct_casecross.csv', sep = '_')
+  
+  # write permanent dataset
+  write_csv(outcome_casecross, file_name)
+}
+
+
+
+start <- Sys.time()
+for(j in var_list){ # begin first loop of variable names (outcomes)
+  
+  # Case-Crossover loop ----------------------------------------------------------
+  outcome_col <- which(colnames(disease) == j) # use to keep outcome var
+  
+  outcome_id <- disease %>%
+    filter(disease[[j]] == 1) %>% # jth outcome
     filter(date_admit >= '2012-07-01' & 
              date_admit <= '2012-10-31') %>% 
     arrange(date_admit) %>%
@@ -224,8 +278,8 @@ for(j in var_list){ # begin first loop of variable names (outcomes)
   # begin second loop to create counterfactual observations for each case subject
   for (i in 1:nrow(outcome_id)){
     # code dates for each id up to two months before and after the event
-    date <- seq(as.Date(outcome_id[[i, 3]] - 56), 
-                as.Date(outcome_id[[i, 3]] + 56), by = '1 week')
+    date <- seq(as.Date(outcome_id[[i, 4]] - 56), 
+                as.Date(outcome_id[[i, 4]] + 56), by = '1 week')
     
     # covariates to preserve
     covariate <- filter(outcome_id, id == i) %>% 
