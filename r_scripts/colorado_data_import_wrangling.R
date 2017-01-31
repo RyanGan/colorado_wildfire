@@ -549,7 +549,7 @@ summary(co_hosp_w_outcome_df)
 
 # Creating a Permanent DataFrame -----------------------------------------------
 # write a permanent chars confidential dataset
-write_path <- paste0('C:/Users/jyliu/Desktop/local_git_repo/colorado_wildfire/',
+write_path <- paste0('C:/Users/jyliu/Desktop/local_git_repo/colorado_wildfire/data/',
   'co_hosp_w_outcome_df.csv')
 write_csv(co_hosp_w_outcome_df, write_path)
 
