@@ -12,7 +12,6 @@ library(dplyr)
 library(readr)
 library(lubridate)
 
-
 read_path <- paste0('./data/co_hosp_w_outcome_df.csv')
 disease <- read_csv(read_path) 
 read_path2 <- paste0('./st08_co_cou.txt')
@@ -112,9 +111,6 @@ cov_df <- cov_df %>%
 var_list <- c('resp1', 'asthma1', 'pneum1',  'acute_bronch1', 'copd1', 'cvd1', 
               'ihd1', 'arrhythmia1', 'hf1', 'cereb_vas1', 'mi1', 'broken_arm1')
 
-# try small var
-var_list <- c('asthma1', 'resp1')
-
 start <- Sys.time()
 for(m in var_list){ # begin first loop of variable names (outcomes)
   
@@ -207,12 +203,16 @@ for(m in var_list){ # begin first loop of variable names (outcomes)
 
 # sweet this works
 total_time <- Sys.time() - start
-total_time
+total_time # Time difference of 16.00895 mins
 
 
 getwd()
 # check
+aaa <- disease %>% filter(dates >= '2012-07-01' & 
+                            dates <= '2012-10-31')
+check_broken <- sum(aaa[[166]] == 1) # 107
 file_path <- paste0("./data/case_cross_data/mi1_jul_to_oct_casecross.csv")
+
 
 # read in dataframe (Warning: 7802 parsing failures)
 check <- read_csv(file_path)
