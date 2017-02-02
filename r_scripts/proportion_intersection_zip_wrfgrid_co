@@ -12,8 +12,8 @@ library(tidyverse)
 
 grid_dir <- paste0('./instructions/co_grid_shp_nad83')
 
-smoke_grid <- readOGR(dsn = grid_dir, layer = "co_grid") # ?
-summary(smoke_grid) # has 1107 here
+smoke_grid <- readOGR(dsn = grid_dir, layer = "co_grid") # ? layer
+summary(smoke_grid) # 
 plot(smoke_grid) 
 
 getwd()
