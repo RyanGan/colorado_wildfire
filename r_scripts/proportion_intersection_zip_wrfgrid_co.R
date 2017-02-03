@@ -10,14 +10,15 @@ library(sp)
 library(rgeos) # rgeos package contains the intersect and area commands I need
 library(tidyverse)
 
-grid_dir <- paste0('./instructions/co_grid_shp_nad83')
+grid_dir <- paste0('./instructions/tl_2012_us_zcta510/tl_2012_us_zcta510.shp')
 
-smoke_grid <- readOGR(dsn = grid_dir, layer = "co_grid") # ? layer
-summary(smoke_grid) # 
+smoke_grid <- readOGR(dsn = grid_dir) # ?layer
+summary(smoke_grid) 
 plot(smoke_grid) 
 
 getwd()
 
 
+library(maptools)
 
 
