@@ -1,0 +1,213 @@
+---
+title: "Colorado claims"
+author: "Jingyang Liu"
+date: "February 3, 2017"
+output: html_document
+---
+
+
+## Overview
+This document contains results for the association between wildfire smoke PM~2.5~ and cardiovascular (CVD) and respiratory health outcomes. This particular markdown document focuses on the zip code-level analysis. Note there is a county-level analysis that will be paired with CDC mortality data as well. Herein, I compare different PM~2.5~ estimation methods described in further detail below. 
+
+Note, epidemiological methods that Sheryl and Ryan think can improve our estimation and reduce some bias around the point estimates will not be the focus of the manuscript. 
+
+```{r setup, include=FALSE}
+
+
+
+# ------------------------------------------------------------------------------
+# Title: Script descriptive statistics about the Colorado claims data more than just 2012. 
+#  some counts of the primary diagnoses on our specific health outcomes over that time frame.
+# Author: Jingyang Liu
+# Date Created: 1/24/17
+# R version: 3.3.2
+# ------------------------------------------------------------------------------
+
+
+# loading libraries used
+library(tidyverse) # import tidyverse
+library(survival) # for conditional logistic regression
+library(htmlTable) # table
+library(lme4) # random-effects model
+library(broom) # broom for tidy data from stats models
+library(cowplot) # for multi plot image
+
+
+
+# Set working directory and read in files --------------------------------------
+# relative path
+
+
+# path <- paste0("./data/case_crossover_data") # for some reason, I cannot use this command 
+# for the following use, so I have to write the working directory path 12 times.
+
+# direct path for pc
+#path <- paste0("C:/Users/RGan/Documents/git_local_repos/wildfire/",
+#               "wildfire_washington/analysis/analysis_data")
+
+# Infile case-crossover dataframes ---------------------------------------------
+# Dataframes made in 'chars_3month_binary_smoke_may2016 script
+# resp exacerbations
+resp_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                                 "resp1_jul_to_oct_casecross.csv", 
+                                 sep = "/"))
+
+# asthma
+asthma_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                                   "asthma1_jul_to_oct_casecross.csv", 
+                                   sep = "/")) 
+
+# copd 
+copd_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                                 "copd1_jul_to_oct_casecross.csv", 
+                                 sep = "/"))
+# copd exacerbations
+#copd_ex_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+#                                    "copd_ex1_jul_to_oct_casecross.csv",
+#                                    sep="/"))
+# pneum or bronchitis
+pneum_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                                  "pneum1_jul_to_oct_casecross.csv",
+                                  sep="/"))
+# acute bronchitis
+acute_bronch_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                                         "acute_bronch1_jul_to_oct_casecross.csv",
+                                         sep = "/"))
+# cvd
+cvd_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                                "cvd1_jul_to_oct_casecross.csv",
+                                sep="/"))
+# arrhythmia
+arrhythmia_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                                       "arrhythmia1_jul_to_oct_casecross.csv",
+                                       sep="/"))
+# cerebral vascular
+cereb_vas_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                                      "cereb_vas1_jul_to_oct_casecross.csv",
+                                      sep="/"))
+# heart failure
+hf_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                               "hf1_jul_to_oct_casecross.csv", 
+                               sep="/"))
+# ischemic heart disease
+ihd_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                                "ihd1_jul_to_oct_casecross.csv",
+                                sep="/"))
+# myo infarc
+mi_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                               "mi1_jul_to_oct_casecross.csv", sep="/"))
+
+# broken arm
+broken_arm_casecross <- read_csv(paste(paste0("./data/case_cross_data/"), 
+                                       "broken_arm1_jul_to_oct_casecross.csv",
+                                       sep="/"))
+
+
+# note 12/4/16: read_csv is pretty slow on pc, fread doesn't import date variable 
+# that well. Solution may be to use fread but convert to date to use later
+```
+
+
+## Descriptive
+
+```{r descriptive table, echo = F, warning = F, results='asis'}
+# dataframe list
+df_list <- list(resp_casecross, asthma_casecross, copd_casecross, pneum_casecross,
+                acute_bronch_casecross, cvd_casecross, arrhythmia_casecross,
+                cereb_vas_casecross, hf_casecross, ihd_casecross, mi_casecross, 
+                broken_arm_casecross)
+
+outcome_list <- c('All Respiratory', 'Asthma', 'COPD', 'Pneumonia', 
+                  'Acute Bronchitis', 'Cardiovascular Disease', 'Arrhythmia', 
+                  'Cerebrovascular Disease', 'Heart Failure',
+                  'Ischemic Heart Disease', 'Myocardial Infarction', 'Broken Arm')
+
+# create an empty list to row bind dataframes together
+datalist <- list()
+
+# set list and do cross tabs to find values
+# Producing conditional logit model estimates loop 
+for(i in 1:length(df_list)){
+  
+  # dataframe to loop through
+  df_to_loop <- data.frame(df_list[i])
+  # indication of column
+  outcome <- colnames(df_to_loop[13])
+  # outcome name
+  outcome_name <- outcome_list[i]
+  
+  # dataframe for analysis creation
+  
+  df_analysis <- df_to_loop %>% 
+    # only look at outcomes
+    filter(outcome == 1) %>%
+    # add another row that makes sure there is a person <15 in the dataframe
+    # tricking xtabs to produce a 0 cell for the outcome for age <15
+    add_row(outcome = 0, age_ind = 0)
+  
+  # cross tabs
+  outcome_n <- xtabs(~ outcome, df_analysis)
+  cross_tab_age <- xtabs(~ outcome + age_ind, df_analysis)
+  cross_tab_sex <- xtabs(~ outcome + sex_ind, df_analysis)
+  # empty matrix
+  point_estimates <- matrix(nrow = 1, ncol = 7, byrow = T)
+  
+  colnames(point_estimates) <- c("outcome", "n", "age_15", "age_15_65", 
+                                 "age_65", "female", "male")
+  
+  # fill in the outcome name for the dataframe before the loop
+  point_estimates[, 1] <- outcome_name
+  # fill n
+  point_estimates[, 2] <- outcome_n[2] # second element of the 1 dimension vector
+  # age <15
+  point_estimates[, 3] <- cross_tab_age[2, 1]
+  # age 15 to 65
+  point_estimates[, 4] <- cross_tab_age[2, 2]
+  # age >65
+  point_estimates[, 5] <- cross_tab_age[2, 3]
+  # male == 0
+  point_estimates[, 7] <- cross_tab_sex[1, 1]
+  # female == 1
+  point_estimates[, 6] <- cross_tab_sex[1, 2]
+  
+  
+  # save point estimates as a dataframe
+  point_est_df <- as_data_frame(point_estimates)
+  
+  # combine previous values in dataframe that has all outcome/methods comparisons
+  datalist[[i]] <- point_est_df
+  
+} # end of loop
+
+# combine each outcome dataframe itteration in to a big dataset
+combined_point_est_df <- bind_rows(datalist) %>% 
+  # find proportions/percents for each strata in a row
+  mutate(age_15_pr = as.character(round((as.numeric(age_15)/as.numeric(n))*100,1)),
+         age_15_65_pr = as.character(round((as.numeric(age_15_65)/as.numeric(n))*100,1)),
+         age_65_pr = as.character(round((as.numeric(age_65)/as.numeric(n))*100,1)),
+         female_pr = as.character(round((as.numeric(female)/as.numeric(n))*100,1)),
+         male_pr = as.character(round((as.numeric(male)/as.numeric(n))*100,1))) %>% 
+  select(outcome, n, age_15, age_15_pr, age_15_65, age_15_65_pr, age_65,
+         age_65_pr, female, female_pr, male, male_pr)
+
+#str(combined_point_est_df)
+
+tab <- htmlTable(txtRound(combined_point_est_df, digits = 1), 
+                 caption = "Number of cases for each outcome observed from July 1st to October 31st, 2012",
+                 # column headers
+                 header = c("Outcome", "Cases n", "Less than 15", "(%)", "15 to 65", "(%)", "Greater than 65",
+                            "(%)", "Female", "(%)", "Male", "(%)"),
+                 # column spanner
+                 cgroup = c("","Age Category", "Sex"), 
+                 n.cgroup = c(2, 6, 4),
+                 padding.rgroup = "&nbsp;&nbsp;",
+                 css.cell = "padding-left: 0.5em; padding-right: .5em;", # cell space
+                 align = "llccccc" # column alignment,
+) # end table
+
+
+print(tab)
+
+```
+
+
