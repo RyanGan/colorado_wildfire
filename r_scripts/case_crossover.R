@@ -17,6 +17,9 @@ disease <- read_csv(read_path)
 read_path2 <- paste0('./st08_co_cou.txt')
 co_geo <- read_csv(read_path2, col_names = F)
 
+## check unique person and unique claim, yes
+length(unique(disease$cdpheid)) 
+
 # changing variable name, 
 summary(co_geo)
 names(co_geo)[1:5] <- c("state","st_code","county_code","county_name","FIPS")
