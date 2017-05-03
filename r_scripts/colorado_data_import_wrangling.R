@@ -5,25 +5,27 @@
 # R version: 3.3.2
 # ------------------------------------------------------------------------------
 
+# Note: 5/3/2017 Some modifications by Ryan 
+
 # load libraries
 library(tidyverse)
-library(data.table)
-library(dplyr)
-library(readxl)
-
 
 # define relative path for csv file
 file_path <- paste0("./data/co_hosp_1015.csv")
 
 # read in dataframe (Warning: 7802 parsing failures)
-co_hosp_df <- read_csv(file_path)
+co_hosp_df <- read_csv(file_path, col_types = list(ADMTNO = col_character(),
+                   PR13 = col_character(), PATTYPE = col_character()))
+# Note for Jingyang: I fixed the parsing warning. ADMTNO in general is numeric,
+# but CDPHE uses "." as an indicator of missing. In general, best to bring in 
+# all dataset variables as character.
 
 # checking on what is in dataframe
 glimpse(co_hosp_df)
 
 # checking dates
+# convert dates 
 summary(as.factor(co_hosp_df$admit))
-as.character(co_hosp_df$admit) # needs to be character
 
 summary(as.factor(co_hosp_df$ADMMM))
 as.character(co_hosp_df$ADMMM) # needs to be character
