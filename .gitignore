@@ -2,6 +2,11 @@
 .Rhistory
 .RData
 .Ruserdata
-
+# ignoring data folder
 data/
+# ignoring R project save
 *.Rproj
+
+# ignoring word files
+*.docx
+*.doc
