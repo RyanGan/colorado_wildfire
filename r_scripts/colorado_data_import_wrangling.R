@@ -15,7 +15,11 @@ file_path <- paste0("./data/co_hosp_1015.csv")
 
 # read in dataframe (Warning: 7802 parsing failures)
 co_hosp_df <- read_csv(file_path, col_types = list(ADMTNO = col_character(),
-                   PR13 = col_character(), PATTYPE = col_character()))
+                   PR13 = col_character(), PATTYPE = col_character())) %>% 
+  # converting some column types
+  mutate(admit = as.Date(admit, "%m/%d/%Y")) %>% 
+  mutate_at(c("ADMMM", "ADMDD"), as.integer)
+
 # Note for Jingyang: I fixed the parsing warning. ADMTNO in general is numeric,
 # but CDPHE uses "." as an indicator of missing. In general, best to bring in 
 # all dataset variables as character.
@@ -25,102 +29,103 @@ glimpse(co_hosp_df)
 
 # checking dates
 # convert dates 
-summary(as.factor(co_hosp_df$admit))
+co_hosp_df$admit <- as.Date(co_hosp_df$admit, "%m/%d/%Y")
+# check range to see if it fits with what we requested
+summary(co_hosp_df$admit)
 
-summary(as.factor(co_hosp_df$ADMMM))
-as.character(co_hosp_df$ADMMM) # needs to be character
+glimpse(co_hosp_df)
 
-summary(as.factor(co_hosp_df$ADMDD))
-as.character(co_hosp_df$ADMDD) # needs to be character
-    # checking if date 31 in right months (yes)
-    samp_df_admdd1 <- co_hosp_df %>% filter(ADMDD==31)
-    samp <- samp_df_admdd1 %>% filter(ADMMM %in% c(2,4,6,9,11))
+# RG Note 5/4/17: commenting out data checks
 
-    # checking if date 29 and 30 in right months (yes)
-    samp_df_admdd2 <- co_hosp_df %>% filter(ADMDD==29|ADMDD==30)
-    samp2 <- samp_df_admdd2 %>% filter(ADMMM==2)
+# summary(as.factor(co_hosp_df$ADMMM))
+# as.character(co_hosp_df$ADMMM) # needs to be character
+# 
+# summary(as.factor(co_hosp_df$ADMDD))
+# as.character(co_hosp_df$ADMDD) # needs to be character
+#     # checking if date 31 in right months (yes)
+#     samp_df_admdd1 <- co_hosp_df %>% filter(ADMDD==31)
+#     samp <- samp_df_admdd1 %>% filter(ADMMM %in% c(2,4,6,9,11))
+# 
+#     # checking if date 29 and 30 in right months (yes)
+#     samp_df_admdd2 <- co_hosp_df %>% filter(ADMDD==29|ADMDD==30)
+#     samp2 <- samp_df_admdd2 %>% filter(ADMMM==2)
+# 
+# summary(as.factor(co_hosp_df$ADMYY)) # 2010-2015 right
+# as.numeric(co_hosp_df$ADMYY) # needs to be numeric
+# 
+# summary(as.factor(co_hosp_df$ADMHH)) # one missing, ten shows 34
+# as.character(co_hosp_df$ADMHH) # needs to be character
+# samp_df_ADMHH <- co_hosp_df %>% filter(ADMHH==34)
+# samp_df_ADMHH2 <- co_hosp_df %>% filter(is.na(ADMHH))
+# 
+# # checking sex, five are 3, and another one is missing
+# summary(as.factor(co_hosp_df$SEX))
+# samp_df_sex <- co_hosp_df %>% filter(is.na(SEX))
+# samp_df_sex2 <- co_hosp_df %>% filter(SEX==3)
+# 
+# # checking Zip, 96 are missing
+# summary(as.factor(co_hosp_df$ZIP))
+# samp_df_zip <- co_hosp_df %>% filter(is.na(ZIP))
+# 
+# # checking race, 295 are missing, four data shows 8 and 21 data shows 9
+# summary(as.factor(co_hosp_df$RACE))
+# samp_df_race <- co_hosp_df %>% filter(is.na(RACE))
+# samp_df_race2 <- co_hosp_df %>% filter(RACE==8|RACE==9)
+# 
+# # checking on the missing value of 'dx1', 5 (can be ingored)
+# summary(as.factor(co_hosp_df$dx1))
+# samp_df_dx1 <- co_hosp_df %>% filter(is.na(dx1))
+# # checking the missing value of 'dx2', 3608
+# summary(as.factor(co_hosp_df$dx2))
+# samp_df_dx2 <- co_hosp_df %>% filter(is.na(dx2))
+# # checking the missing value of 'dx3', 20904
+# summary(as.factor(co_hosp_df$dx3))
+# samp_df_dx3 <- co_hosp_df %>% filter(is.na(dx3))
+# # checking the missing value of 'dx4', 53378
+# summary(as.factor(co_hosp_df$dx4))
+# samp_df_dx4  <- co_hosp_df %>% filter(is.na(dx4))
+# # checking the missing value of 'dx5', 99629
+# summary(as.factor(co_hosp_df$dx5))
+# samp_df_dx5 <- co_hosp_df %>% filter(is.na(dx5))
+# 
+# # checking Age, 3891 is missing
+# summary(as.factor(co_hosp_df$AGEYRS))
+# max(co_hosp_df$AGEYRS, na.rm = T)  # 820
+# samp_df_age <- co_hosp_df %>% filter(AGEYRS>= 150)  #46
+# 
+# # checking type of admission, 3916 is missing
+# summary(as.factor(co_hosp_df$ADMTNO))
+# samp_df_admtno <- co_hosp_df %>% filter(is.na(ADMTNO))
+# samp_df_admtno2 <- co_hosp_df %>% filter(ADMTNO==1|ADMTNO==2) # 1058762(70%)
+# 
+# # checking cardioresp, 3510 is missing
+# summary(as.factor(co_hosp_df$cardioresp))
+# samp_df_card <- co_hosp_df %>% filter(is.na(cardioresp)) 
+# 
+# # checking Ulna/radius fracture-related diagnosis code, 1502808 is missing
+# summary(as.factor(co_hosp_df$limbfx))
+# samp_df_lim <- co_hosp_df %>% filter(is.na(limbfx)) 
+# 
+# # checking wrfgrid id, 3886 is missing
+# summary(as.factor(co_hosp_df$WRFGRID_ID))
+# samp_df_wrf <- co_hosp_df %>% filter(is.na(WRFGRID_ID)) 
+# 
+# # check missing for state of residence
+# xtabs(~ACCSTATE, co_hosp_df)
+# xtabs(~ZIP, co_hosp_df)
+# co_hosp_df$ZIP
+# summary(co_hosp_df)
 
-summary(as.factor(co_hosp_df$ADMYY)) # 2010-2015 right
-as.numeric(co_hosp_df$ADMYY) # needs to be numeric
+# CDPHE data cleaning ----------------------------------------------------------
+# date created: 1/25/17
 
-summary(as.factor(co_hosp_df$ADMHH)) # one missing, ten shows 34
-as.character(co_hosp_df$ADMHH) # needs to be character
-samp_df_ADMHH <- co_hosp_df %>% filter(ADMHH==34)
-samp_df_ADMHH2 <- co_hosp_df %>% filter(is.na(ADMHH))
-
-# checking sex, five are 3, and another one is missing
-summary(as.factor(co_hosp_df$SEX))
-samp_df_sex <- co_hosp_df %>% filter(is.na(SEX))
-samp_df_sex2 <- co_hosp_df %>% filter(SEX==3)
-
-# checking Zip, 96 are missing
-summary(as.factor(co_hosp_df$ZIP))
-samp_df_zip <- co_hosp_df %>% filter(is.na(ZIP))
-
-# checking race, 295 are missing, four data shows 8 and 21 data shows 9
-summary(as.factor(co_hosp_df$RACE))
-samp_df_race <- co_hosp_df %>% filter(is.na(RACE))
-samp_df_race2 <- co_hosp_df %>% filter(RACE==8|RACE==9)
-
-# checking on the missing value of 'dx1', 5 (can be ingored)
-summary(as.factor(co_hosp_df$dx1))
-samp_df_dx1 <- co_hosp_df %>% filter(is.na(dx1))
-# checking the missing value of 'dx2', 3608
-summary(as.factor(co_hosp_df$dx2))
-samp_df_dx2 <- co_hosp_df %>% filter(is.na(dx2))
-# checking the missing value of 'dx3', 20904
-summary(as.factor(co_hosp_df$dx3))
-samp_df_dx3 <- co_hosp_df %>% filter(is.na(dx3))
-# checking the missing value of 'dx4', 53378
-summary(as.factor(co_hosp_df$dx4))
-samp_df_dx4  <- co_hosp_df %>% filter(is.na(dx4))
-# checking the missing value of 'dx5', 99629
-summary(as.factor(co_hosp_df$dx5))
-samp_df_dx5 <- co_hosp_df %>% filter(is.na(dx5))
-
-# checking Age, 3891 is missing
-summary(as.factor(co_hosp_df$AGEYRS))
-max(co_hosp_df$AGEYRS, na.rm = T)  # 820
-samp_df_age <- co_hosp_df %>% filter(AGEYRS>= 150)  #46
-
-# checking type of admission, 3916 is missing
-summary(as.factor(co_hosp_df$ADMTNO))
-samp_df_admtno <- co_hosp_df %>% filter(is.na(ADMTNO))
-samp_df_admtno2 <- co_hosp_df %>% filter(ADMTNO==1|ADMTNO==2) # 1058762(70%)
-
-# checking cardioresp, 3510 is missing
-summary(as.factor(co_hosp_df$cardioresp))
-samp_df_card <- co_hosp_df %>% filter(is.na(cardioresp)) 
-
-# checking Ulna/radius fracture-related diagnosis code, 1502808 is missing
-summary(as.factor(co_hosp_df$limbfx))
-samp_df_lim <- co_hosp_df %>% filter(is.na(limbfx)) 
-
-# checking wrfgrid id, 3886 is missing
-summary(as.factor(co_hosp_df$WRFGRID_ID))
-samp_df_wrf <- co_hosp_df %>% filter(is.na(WRFGRID_ID)) 
-
-# check missing for state of residence
-xtabs(~ACCSTATE, co_hosp_df)
-xtabs(~ZIP, co_hosp_df)
-co_hosp_df$ZIP
-summary(co_hosp_df)
-
-
-
-# ------------------------------------------------------------------------------
-# Title: Cleaning CDPHE data
-# Date Created: 1/25/17
-# ------------------------------------------------------------------------------
-
-# data cleaning of CDPHE -------------------------------------------------------
-# at least a primary ICD9 code present
+# filter to those with a primary dx1
 co_hosp_w_outcome_df <- co_hosp_df %>% filter(!is.na(dx1)) %>% 
   # filter to only ER or urgent care
   filter(ADMTNO==1|ADMTNO==2) %>% 
   # indicator for male=0, female=1
-  mutate(sex_ind =ifelse(SEX == 2, 1, 
-                  ifelse(SEX == 1, 0, NA)),
+  mutate(sex_ind = ifelse(SEX == 2, 1, 
+                   ifelse(SEX == 1, 0, NA)),
          age_ind = ifelse(AGEYRS < 15, 0,
                    ifelse(AGEYRS >= 15 & AGEYRS < 65, 1,
                    ifelse(AGEYRS >= 65 & AGEYRS <=110, 2, NA)))
@@ -132,7 +137,9 @@ ggplot(co_hosp_w_outcome_df, aes(co_hosp_w_outcome_df$AGEYRS)) +
 
 # Creating vectors of outcome claims -------------------------------------------
 # import chars diagnosis code key
-icd9_key <- read_excel("CMS32_DESC_LONG_SHORT_DX.xlsx")
+# RG Note 5/4/17: changing file path and name
+icd9_key <- read_csv("./data/MedicareDiagCodeV30.csv") %>% 
+  select(1:3)
 
 # changing variable name, 'code' for 'diagonsis code'.
 summary(icd9_key)
@@ -551,8 +558,7 @@ summary(co_hosp_w_outcome_df)
 
 # Creating a Permanent DataFrame -----------------------------------------------
 # write a permanent chars confidential dataset
-write_path <- paste0('C:/Users/jyliu/Desktop/local_git_repo/colorado_wildfire/data/',
-  'co_hosp_w_outcome_df.csv')
+write_path <- paste0('./data/co_hosp_w_outcome_df.csv')
 write_csv(co_hosp_w_outcome_df, write_path)
 
 
