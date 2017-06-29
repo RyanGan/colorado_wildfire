@@ -20,6 +20,7 @@ co_hosp_df <- read_csv(file_path, col_types = list(ADMTNO = col_character(),
   mutate(admit = as.Date(admit, "%m/%d/%Y")) %>% 
   mutate_at(c("ADMMM", "ADMDD"), as.integer)
 
+glimpse(co_hosp_df)
 # Note for Jingyang: I fixed the parsing warning. ADMTNO in general is numeric,
 # but CDPHE uses "." as an indicator of missing. In general, best to bring in 
 # all dataset variables as character.
