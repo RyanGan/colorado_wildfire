@@ -1,0 +1,155 @@
+---
+title: "Assigning ZIP, county, and census tract boundaries to WRF-Grid"
+author: "Ryan Gan"
+date: "10/19/2017"
+output: html_document
+---
+
+## Purpose
+
+As part of the Colorado wildfire project and the American Lung Association project, I will need to assign ZIP code, county, and census track IDs to cells in the WRF-grid. 
+
+Loading in the tidyverse and sf package.
+
+```{r setup}
+library(tidyverse)
+library(sf)
+```
+
+Bringing in WRF-Grid, ZIP code, county, and census tracts as simple features files. I will return to ZIP since it might change year to year. Census might be okay since it might only change every decade? Sheena would probably know for sure.
+
+```{r file imports}
+# county grid
+county_path <- "./data/shapefiles/colorado_county"
+colorado_county <- st_read(dsn=county_path, layer="colorado_county")
+# retrieve coordinate reference system
+wgs84 <- st_crs(colorado_county)
+
+# wrf grid
+wrf_path <- "./data/shapefiles/co_grid_shp"
+wrf_grid <- st_read(dsn=wrf_path, layer="co_grid")
+# set crs of grid
+st_crs(wrf_grid) <- wgs84
+
+# census tract
+# I'll look at census and zip in a bit
+```
+
+# Assigning county
+
+This should be the most straight-forward as counties are the largest boundary I'd like to assign and most grid cells should fall nicely in to one county polygon.
+
+```{r county grid plot}
+# plot colorado counties and overlay wrf-grid
+map <- ggplot() +
+  geom_sf(data = colorado_county, fill="white") +
+  geom_sf(data = wrf_grid, alpha = 0) +
+  theme_bw()
+map
+```
+
+It took some time to print this map and I may have to move this on to the server. I'm going to subset to El Paso and Pueblo for now.
+
+```{r subset el paso and pueblo}
+# el paso = 041 and pueblo = 101
+el_paso <- colorado_county %>% 
+  filter(COUNTYFP == "041") 
+
+# subset grid to cells in county
+el_paso_grid <- wrf_grid[el_paso,]
+  
+# map
+map <- ggplot(data = el_paso) +
+  geom_sf(fill="white") +
+  geom_sf(data=el_paso_grid, alpha = 0) +
+  theme_bw()
+
+map
+
+
+
+# find intersect
+intersect <- st_intersection(el_pueblo_grid, el_pueblo)
+plot(intersect$geometry)
+# proportion intersect
+prop_int <- as.numeric(st_area(intersect)/st_area(el_pueblo_grid))
+# i think I need to go by each county or spatial object
+
+# custom function
+pr_intersect_fun <- function(poly){
+  # subset grid that contains poly_i
+  grid_i <- wrf_grid[poly,]
+  # proportion intersect
+  intersect_sf <- st_intersection(grid_i, poly)
+  # calculation of proportion intersect
+  proportion <- as.numeric(st_area(intersect_sf)/st_area(grid_i)) %>% 
+    data_frame() %>% rename(proportion = ".")
+  # column bind the proportion to the intersect sf object
+  output_df <- intersect_sf %>% 
+    select(WRFGRID_ID, STATEFP, COUNTYFP) %>% 
+    bind_cols(proportion)
+  # remove geometry
+  st_geometry(output_df) <- NULL
+  return(output_df)
+}
+
+# test function on one polygon
+test_df <- pr_intersect_fun(el_paso)
+
+test_df2 <- pr_intersect_fun(el_pueblo)
+
+test_df3 <- test_df2 %>% 
+  group_by(WRFGRID_ID) %>% 
+  summarise(count = n()) %>% 
+  right_join(test_df2, by = "WRFGRID_ID") %>% 
+  arrange(WRFGRID_ID, desc(count))
+
+# try and spread
+test_spread <- test_df3 %>% 
+  spread(COUNTYFP, proportion)
+
+# i think this would be a much faster way to compute proportion intersect...
+# I'll have to do some checks to make sure it works like I think it does.
+
+# test of two counties
+el_pueblo <- colorado_county %>% 
+  filter(COUNTYFP == "041" | COUNTYFP == "101")
+
+# output cell 17020
+cell <- wrf_grid %>% filter(WRFGRID_ID == 17020)
+
+# map
+map <- ggplot(data = el_pueblo) +
+  geom_sf(fill="white") +
+  geom_sf(data=cell, alpha = 0) +
+  theme_bw()
+
+map
+```
+
+I'll need to double check to make sure this process works.
+
+```{r county assignment}
+# subset the grids that overlap in some way with Colorado counties
+co_grid <- wrf_grid[colorado_county, ]
+# create a sf object that intersects 
+intersect_sf <- st_intersection(co_grid, colorado_county)
+# find proportion intersect for each grid
+proportion <- as.numeric(st_area(intersect_sf)/st_area(co_grid)) %>% 
+  data_frame() %>% rename(proportion = ".")
+
+```
+
+
+```{r stuff I may not use, eval = F}
+# convert to list
+test_list <- split(el_pueblo, seq(nrow(el_pueblo)))
+
+# test with purrr on the two grids
+test_df2 <- lapply(el_pueblo, pr_intersect_fun)
+lmap
+purrr::pm
+
+
+
+```
