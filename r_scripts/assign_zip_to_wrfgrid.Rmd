@@ -93,7 +93,10 @@ prop_int_matrix: fucntion to produce a proportion-intersect matrix from populati
 ```{r custom function}
 # proportion_intersect ----
 # custom function (I should write this to a package)
-proportion_intersect <- function(poly, grid){
+proportion_intersect <- function(poly, poly_id, grid, grid_id){
+  # enquo lazy eval
+  poly_id <- enquo(poly_id)
+  grid_id <- enquo(grid_id)
   # subset grid that contains poly_i
   grid_i <- grid[poly,]
   # proportion intersect
@@ -104,7 +107,7 @@ proportion_intersect <- function(poly, grid){
   # column bind the proportion to the intersect sf object
   output_df <- intersect_sf %>% 
     # eventually replace these with generic names
-    select(WRFGRID_ID, FIPS) %>% 
+    select(!!grid_id, !!poly_id) %>% 
     bind_cols(proportion)
   # remove geometry
   st_geometry(output_df) <- NULL
@@ -115,9 +118,9 @@ proportion_intersect <- function(poly, grid){
 # note I want to find a way to do lazy eval for function names
 # assign county (plan to add this functionality to function)
 grid_to_poly <- function(prop_int_df, group_column) {
-  # I think I might have county in 
+  # lazy eval needs enquo
   group_column <- enquo(group_column)
-  print(group_column)
+  # create dataframe
   grid_to_poly_df <- prop_int_df %>% 
     group_by(!!group_column) %>% 
     # take highest proportion
@@ -128,8 +131,6 @@ grid_to_poly <- function(prop_int_df, group_column) {
   return(grid_to_poly_df)
 }
 
-# grid to WRF id function
-co_county_id2 <- grid_to_poly(co_county_df, WRFCHEM_ID)
 ```
 
 I'll need to double check to make sure this process works. Takes about a minute to calculate proportion intersect for each county and WRF cell in state.
@@ -138,16 +139,17 @@ I'll need to double check to make sure this process works. Takes about a minute 
 # create dataframe of intersects and time computation
 start_time <- Sys.time()
 # proportion intersect for the entire state
-co_county_df <- proportion_intersect(poly = colorado_county,
-                                     grid = wrf_grid)
+co_county_df <- proportion_intersect(poly = colorado_county, poly_id = FIPS,
+                                     grid = wrf_grid, grid_id = WRFGRID_ID)
 
 stop_time <- Sys.time()
 compute_time <- stop_time - start_time
 compute_time
 
+# grid to WRF id function
+co_county_id2 <- grid_to_poly(co_county_df, WRFGRID_ID)
 
-
-
+identical(co_county_id, co_county_id2)
 # might as well create proportion intersect matrix as well
 # i need to add back in the WRF IDs that were outside the state boundary
 complete_wrf_id <- wrf_grid %>% 
