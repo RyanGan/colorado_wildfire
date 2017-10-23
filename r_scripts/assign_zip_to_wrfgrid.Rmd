@@ -19,24 +19,28 @@ library(sf)
 Bringing in WRF-Grid, ZIP code, county, and census tract shape files as simple features files using the "sf" package. I will return to ZIP since it might change year to year. Census might be okay since it might only change every decade? Sheena would probably know for sure.
 
 ```{r file imports}
-# county grid
+# county grid ----
 county_path <- "./data/shapefiles/colorado_county"
 colorado_county <- st_read(dsn=county_path, layer="colorado_county") %>% 
   # make a general FIPS code
   mutate(FIPS = as.factor(paste0(STATEFP, COUNTYFP)))
 # retrieve coordinate reference system from census shapefile
-wgs84 <- st_crs(colorado_county)
+#wgs84 <- st_crs(colorado_county)
 
-# wrf grid
+# census tract ----
+census_path <- "./data/shapefiles/ACS_2015_5YR_TRACT_CO"
+colorado_census <- st_read(dsn=census_path, layer="ACS_2015_5YR_TRACT_CO")
+# retrieve coordinate ref system from census tract
+nad83 <- st_crs(colorado_census)
+
+# wrf grid ----
 wrf_path <- "./data/shapefiles/co_grid_shp"
 wrf_grid <- st_read(dsn=wrf_path, layer="co_grid")
-# set crs of grid
-st_crs(wrf_grid) <- wgs84
+# set crs of grid and county to nad83 to be the same
+st_crs(wrf_grid) <- nad83
+colorado_county <- st_transform(colorado_county, nad83) 
 
-# census tract
-# I'll look at census and zip in a bit
-
-# lat/lon of power plants
+# lat/lon of power plants ----
 plant_id <- c("pueblo", "colo_springs")
 lat <- c(38.2081, 38.8244)
 lon <- c(-104.5747, -104.8331)
@@ -93,14 +97,14 @@ prop_int_matrix: fucntion to produce a proportion-intersect matrix from populati
 ```{r custom function}
 # proportion_intersect ----
 # custom function (I should write this to a package)
-proportion_intersect <- function(poly, poly_id, grid, grid_id){
+proportion_intersect <- function(poly_sf, poly_id, grid_sf, grid_id){
   # enquo lazy eval
   poly_id <- enquo(poly_id)
   grid_id <- enquo(grid_id)
   # subset grid that contains poly_i
-  grid_i <- grid[poly,]
+  grid_i <- grid_sf[poly_sf,]
   # proportion intersect
-  intersect_sf <- st_intersection(grid_i, poly)
+  intersect_sf <- st_intersection(grid_i, poly_sf)
   # calculation of proportion intersect
   proportion <- as.numeric(st_area(intersect_sf)/st_area(grid_i)) %>% 
     data_frame() %>% rename(proportion = ".")
@@ -131,46 +135,82 @@ grid_to_poly <- function(prop_int_df, group_column) {
   return(grid_to_poly_df)
 }
 
+# proportion intersect data frame ----
+# this custom function creates the proportion intersect data frame that can be
+# converted to a matrix for population-weighting
+pi_matrix <- function(grid_sf, grid_id, prop_int_df, poly_id){
+  # lazy eval variables
+  grid_id <- enquo(grid_id)
+  poly_id <- enquo(poly_id)
+  
+  # remove geometry object from grid
+  st_geometry(grid_sf) <- NULL
+  
+  # vector of row names
+  row_names <- grid_sf %>% select(!!grid_id) %>% as.vector()
+  is.vector(row_names)
+  head(row_names)
+  # # full grid joined with proportion intersect grid
+  output_df <- grid_sf %>% 
+    select(!!grid_id) %>%
+    left_join(prop_int_df, by = as.character(grid_id[2])) %>% 
+    mutate(id = as.factor(paste0("id", !!poly_id))) %>%
+    # spread
+    spread(id, proportion) %>% 
+    # mutate missing to 0 at each fips var
+    mutate_at(vars(contains("id")), funs(ifelse(is.na(.), 0,
+              ifelse(.>1, 1, .)))) %>% 
+    # remove idNA
+    select(-idNA, -!!grid_id, -!!poly_id)
+  
+  # convert to matrix
+  output_matrix <- as.matrix(output_df)
+  return(output_matrix)
+}  
 ```
 
-I'll need to double check to make sure this process works. Takes about a minute to calculate proportion intersect for each county and WRF cell in state.
+I'll need to double check to make sure this process works. Takes about a minute to calculate proportion intersect for each county and WRF cell in state. I will eventually come back and calculate intersections for ZIP codes, but I think it would be best to calculate intersect for each year for ZIP code polygons as they may change.
 
-```{r county assignment}
+```{r county and census assignment}
+# county ---
 # create dataframe of intersects and time computation
 start_time <- Sys.time()
 # proportion intersect for the entire state
 co_county_df <- proportion_intersect(poly = colorado_county, poly_id = FIPS,
                                      grid = wrf_grid, grid_id = WRFGRID_ID)
 
+# calculate run time
 stop_time <- Sys.time()
 compute_time <- stop_time - start_time
 compute_time
 
-# grid to WRF id function
-co_county_id2 <- grid_to_poly(co_county_df, WRFGRID_ID)
+# grid to county id function
+co_county_id <- grid_to_poly(co_county_df, WRFGRID_ID)
 
-identical(co_county_id, co_county_id2)
-# might as well create proportion intersect matrix as well
-# i need to add back in the WRF IDs that were outside the state boundary
-complete_wrf_id <- wrf_grid %>% 
-  select(WRFGRID_ID) %>% 
-  left_join(co_county_df, by = "WRFGRID_ID")
-# remove sf geometry
-st_geometry(complete_wrf_id) <- NULL
+# census ---
+start_time <- Sys.time()
+# proportion intersect for entire state with census and grid
+co_census_df <- proportion_intersect(poly = colorado_census, poly_id = TRACTCE,
+                                     grid = wrf_grid, grid_id = WRFGRID_ID)
 
-# create dataframe that can be used for population-weighting
-co_county_pi <- complete_wrf_id %>% 
-  # add a fips in front of each FIPS code to avoid variable with a leading 0
-  mutate(FIPS = paste0("FIPS",FIPS)) %>% 
-  spread(FIPS, proportion) %>% 
-  # mutate missing to 0 at each fips variable
-  mutate_at(vars(contains("FIPS")), funs(ifelse(is.na(.), 0, .))) %>% 
-  # remove FIPS NA variable created by missing FIPS values in WRFGRIDS outside
-  # of state bounding box
-  select(-FIPSNA)
+# calculate run time
+stop_time <- Sys.time()
+compute_time <- stop_time - start_time
+compute_time
 
-# write this file
-write_path <- "./data/smoke/colo_county_prop_int.csv"
-write_csv(co_county_pi, write_path)
+# grid to census id function
+co_census_id <- grid_to_poly(co_census_df, WRFGRID_ID)
 
+# join census and county ids together
+colorado_poly_ids <- co_county_df %>% 
+  rename(fips_prop = proportion) %>% 
+  full_join(co_census_id, by = "WRFGRID_ID") %>% 
+  rename(tractce_prop = proportion)
+
+# print out first 6 lines of polygon IDs to assign to WRFGRID 
+head(colorado_poly_ids)
+
+# write this file; will add zipcode later
+write_path <- "./data/smoke/olorado_poly_ids.csv"
+write_csv(colorado_poly_ids, write_path)
 ```
