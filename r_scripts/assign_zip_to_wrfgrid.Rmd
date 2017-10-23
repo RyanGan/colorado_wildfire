@@ -146,14 +146,10 @@ pi_matrix <- function(grid_sf, grid_id, prop_int_df, poly_id){
   # remove geometry object from grid
   st_geometry(grid_sf) <- NULL
   
-  # vector of row names
-  row_names <- grid_sf %>% select(!!grid_id) %>% as.vector()
-  is.vector(row_names)
-  head(row_names)
   # # full grid joined with proportion intersect grid
   output_df <- grid_sf %>% 
     select(!!grid_id) %>%
-    left_join(prop_int_df, by = as.character(grid_id[2])) %>% 
+    semi_join(prop_int_df, by = as.character(grid_id[2])) %>% 
     mutate(id = as.factor(paste0("id", !!poly_id))) %>%
     # spread
     spread(id, proportion) %>% 
@@ -213,4 +209,23 @@ head(colorado_poly_ids)
 # write this file; will add zipcode later
 write_path <- "./data/smoke/olorado_poly_ids.csv"
 write_csv(colorado_poly_ids, write_path)
+```
+
+Using my proportion intersect to matrix function to create the WRFGRID by polygon matrices that will be used to population-weight pollutant estimates.
+
+```{r proportion intersect matrices}
+# county
+county_pi_matrix <- pi_matrix(grid_sf = wrf_grid, grid_id = WRFGRID_ID, 
+                              prop_int_df = co_county_df, poly_id = FIPS)
+# check dimensions (not right)
+# i think something in the function is duplicating
+dim(county_pi_matrix)
+# census
+census_pi_matrix <- pi_matrix(grid_sf = wrf_grid, grid_id = WRFGRID_ID, 
+                              prop_int_df = co_census_df, poly_id = TRACTCE)
+
+12952, 12953
+check <- co_census_df %>% slice(13160:13161)
+  
+summary(co_census_df)
 ```
