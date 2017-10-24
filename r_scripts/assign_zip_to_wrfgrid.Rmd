@@ -142,26 +142,33 @@ pi_matrix <- function(grid_sf, grid_id, prop_int_df, poly_id){
   # lazy eval variables
   grid_id <- enquo(grid_id)
   poly_id <- enquo(poly_id)
+
   
   # remove geometry object from grid
   st_geometry(grid_sf) <- NULL
+  # prep grid dataframe
+  grid_id_column <- grid_sf %>% select(!!grid_id)
   
-  # # full grid joined with proportion intersect grid
-  output_df <- grid_sf %>% 
-    select(!!grid_id) %>%
-    semi_join(prop_int_df, by = as.character(grid_id[2])) %>% 
-    mutate(id = as.factor(paste0("id", !!poly_id))) %>%
+  # full grid joined with proportion intersect grid
+  output_df <- grid_id_column %>% 
+    # join grid ids to grids with proportion values
+    left_join(prop_int_df, by = as.character(grid_id[2])) %>% 
+    mutate(poly = as.factor(paste0("poly", !!poly_id))) %>%
+    # it may be important to remove the poly_id so spread just has the 
+    # grid id, new poly id, and the proportions to work with
+    select(-!!poly_id) %>% 
+    # remove duplicates
+    filter(!duplicated(.)) %>% 
     # spread
-    spread(id, proportion) %>% 
-    # mutate missing to 0 at each fips var
-    mutate_at(vars(contains("id")), funs(ifelse(is.na(.), 0,
-              ifelse(.>1, 1, .)))) %>% 
+    spread(poly, proportion) %>% 
+    # mutate missing to 0 at each poly var
+    mutate_at(vars(contains("poly")), funs(ifelse(is.na(.), 0,
+             ifelse(.>1, 1, .)))) %>% 
     # remove idNA
-    select(-idNA, -!!grid_id, -!!poly_id)
+    select(-polyNA) 
   
-  # convert to matrix
-  output_matrix <- as.matrix(output_df)
-  return(output_matrix)
+    # output dataframe
+    return(output_df)
 }  
 ```
 
@@ -186,7 +193,7 @@ co_county_id <- grid_to_poly(co_county_df, WRFGRID_ID)
 # census ---
 start_time <- Sys.time()
 # proportion intersect for entire state with census and grid
-co_census_df <- proportion_intersect(poly = colorado_census, poly_id = TRACTCE,
+co_census_df <- proportion_intersect(poly = colorado_census, poly_id = GEOID,
                                      grid = wrf_grid, grid_id = WRFGRID_ID)
 
 # calculate run time
@@ -201,13 +208,13 @@ co_census_id <- grid_to_poly(co_census_df, WRFGRID_ID)
 colorado_poly_ids <- co_county_df %>% 
   rename(fips_prop = proportion) %>% 
   full_join(co_census_id, by = "WRFGRID_ID") %>% 
-  rename(tractce_prop = proportion)
+  rename(geoid_prop = proportion)
 
 # print out first 6 lines of polygon IDs to assign to WRFGRID 
 head(colorado_poly_ids)
 
 # write this file; will add zipcode later
-write_path <- "./data/smoke/olorado_poly_ids.csv"
+write_path <- "./data/smoke/colorado_poly_ids.csv"
 write_csv(colorado_poly_ids, write_path)
 ```
 
@@ -217,15 +224,28 @@ Using my proportion intersect to matrix function to create the WRFGRID by polygo
 # county
 county_pi_matrix <- pi_matrix(grid_sf = wrf_grid, grid_id = WRFGRID_ID, 
                               prop_int_df = co_county_df, poly_id = FIPS)
-# check dimensions (not right)
+# check dimensions of county matrix 
+# should be 29580 wrfgrids by 64 counties plus grid id column
 # i think something in the function is duplicating
 dim(county_pi_matrix)
+
 # census
 census_pi_matrix <- pi_matrix(grid_sf = wrf_grid, grid_id = WRFGRID_ID, 
-                              prop_int_df = co_census_df, poly_id = TRACTCE)
+                              prop_int_df = co_census_df, poly_id = GEOID)
+# dims of census matrix (should be 29580 wrfids by 1249 census geoids)
+dim(census_pi_matrix)
 
-12952, 12953
-check <- co_census_df %>% slice(13160:13161)
-  
-summary(co_census_df)
+# write census and county matrices ----
+# write county
+write_county <- "./data/smoke/colorado_county_wrf_int_prop.csv"
+write_csv(county_pi_matrix, write_county)
+
+# write census
+write_census <- "./data/smoke/colorado_census_wrf_int_prop.csv"
+write_csv(census_pi_matrix, write_census)
 ```
+
+## To Do:
+
+1. Check a small subset of intersects (maybe one county) to make sure values in big matrix match.
+2. Add in zipcode calculations to be used in Colorado wildfire project.
