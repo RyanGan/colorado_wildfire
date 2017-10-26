@@ -1,0 +1,254 @@
+---
+title: "Census tract cardiopulmonary rates"
+author: "Ryan Gan"
+date: "10/24/2017"
+output: html_document
+---
+
+## Document Purpose
+
+Contains descriptive epidemiology of cardiopulmonary emergency department (ED) and urgent care visits in Colorado from 2010 to September of 2015.
+
+```{r setup}
+library(tidyverse)
+```
+
+Importing data. Also making seasons based on Northern meteorological seasons.
+Spring: March 1 to May 31 (Month 3 to 5)
+Summer: June 1 to August 31 (Month 6 to 8)
+Fall: September 1 to November 30 (Month 9 to 11)
+Winter: December 1 to February 28 (Month 12 to 2)
+
+Note 2017-10-26: I need to go back and fix my join in the poly_id file as it's duplicating counties.
+
+```{r data import}
+# read county population estimates
+census_path <- "./data/health/co-est2016-alldata.csv"
+census_estimates <- read_csv(census_path) %>% 
+  # making state and county fips code
+  mutate(FIPS = paste0(STATE, COUNTY))
+
+# read in census assignments
+poly_path <- "./data/smoke/colorado_poly_ids.csv"
+poly_id <- read_csv(poly_path) %>% 
+  # fips assigned by proportion intersect (I want to retain to check)
+  rename(fips_pi = FIPS) %>% 
+  mutate(WRFGRID_ID = as.character(WRFGRID_ID)) %>% 
+  # noticed i'm duplicating county fips multiple times; probably happened
+  # in the first join in the assign to zip markdown file; need to fix there
+  group_by(WRFGRID_ID) %>% 
+  slice(which.max(fips_prop))
+
+# read in the dataframe with outcomes 
+hosp_path <- "./data/health/co_hosp_w_outcome_df.csv"
+co_hosp <- read_csv(hosp_path) %>% 
+  # noticed broomfield county_geo 014 was sometimes assigned county_final 159
+  # there is no county 159. All other spatial indicators suggest broomfield 014
+  # assigning 014 
+  mutate(county_final = ifelse(county_geo == "014" & county_final == "159", 
+                               "014", county_final),
+    # make fips code
+    FIPS = paste0("08", county_final),
+    # set wrfgrid values of 0 to missing
+    WRFGRID_ID = ifelse(WRFGRID_ID == 0, NA, WRFGRID_ID),
+    WRFGRID_ID = as.character(WRFGRID_ID)) %>% 
+  # remove those missing a WRFGRID ID
+  filter(!is.na(WRFGRID_ID))
+# 1 mil observations
+# 150265 not assigned a grid id
+
+# join with poly ids
+co_hosp_census <- co_hosp %>%
+  # join with wrfgrid 
+  left_join(poly_id, by = "WRFGRID_ID") %>% 
+  # mutate WRFGRID ID to factor
+  mutate(WRFGRID_ID = as.factor(WRFGRID_ID),
+  # adding in a season variable for estimation by season 
+  season = as.factor(ifelse(ADMMM >= 3 & ADMMM <= 5, "spring",
+             ifelse(ADMMM >= 6 & ADMMM <= 8, "summer",
+               ifelse(ADMMM >= 9 & ADMMM <= 11, "fall", "winter")))),
+  # adding in a year indicator for season to check for trends
+  season_yr = as.factor(paste0(season, ADMYY)))
+```
+
+## Colorado Trends
+
+Evaluating state-wide trend in cardiopulmonary ER and urgent care hospital admissions. Creating a time-series for the entire state and calculating rates per 100,000 persons for cardiopulmonary, CVD, and respiratory ED or urgent care hospital visits. Population can vary by year, but I assume a yearly denominator is an appropriate denominator for days in the year. 
+
+```{r state timeseries dataframe}
+# subset out colorado census estimates
+colorado_denom <- census_estimates %>% 
+  filter(FIPS == "08000") %>% 
+  # select variables with popestimate in title
+  select_at(vars(contains("POPESTIMATE"))) %>% 
+  gather(year, population) %>% 
+  # split out only the year
+  mutate(admit_year = as.numeric(stringr::str_replace(year, "POPESTIMATE", ""))) %>% 
+  select(admit_year, population)
+
+# time series
+state_daily_count <- co_hosp_census %>% 
+  # group by admit dat
+  group_by(admit) %>% 
+  summarise(cvd_n = sum(cvd_dx), resp_n = sum(resp_dx)) %>% 
+  # make sum of cvd and resp outcomes and admit_year variable to join with denom
+  mutate(cardiopulm_n = cvd_n + resp_n,
+         admit_year = lubridate::year(admit)) %>% 
+  left_join(colorado_denom, by = "admit_year") %>% 
+  # calculate daily rates per 10,000 persons
+  mutate(cardiopulm_per_100k = (cardiopulm_n/population)*100000,
+         cvd_per_100k = (cvd_n/population)*100000,
+         resp_per_100k = (resp_n/population)*100000) %>% 
+  # gather rate columns in one column 
+  gather("outcome", "rate", cardiopulm_per_100k:resp_per_100k)
+```
+
+Plotting daily rates over time. Trying a small-multiples so the patterns don't overlap. Looks like respiratory ED/urgent care admissions have the standard seasonal pattern going, which is driving the aggregated pattern in the cardiopulmonary ED/urgent care visits. CVD ED/urgent care vists don't really have a seasonal pattern. Across all three outcomes, there is a general decline in ED/urgent care admissions (added in a linear regression line just because). Interesting that in 2013 there is a dip around Christmas and the New Years, which I see sometimes, but also there is a big dip across all three outcomes near the end of the date range of my data, 2015-09-30; this may suggest that the dip is maybe more of a QC issue where admissions haven't been reconciled by this time?
+
+```{r colorado daily rate plots}
+# plot of rate
+p_rate <- ggplot(data = state_daily_count, 
+                 aes(x=admit, y=rate, group=outcome, colour=outcome)) +
+  geom_point(size = 0.25) +
+  facet_wrap(~outcome) +
+  stat_smooth(method = "glm", colour = "black", fill = "black", linetype=2) +
+  ylab("Daily rate per 100k persons") +
+  xlab("Date") +
+  ggtitle("Rate of cardiopulmonary ER/urgent care visits in Colorado") +
+  theme_bw()
+# plot chart
+p_rate
+```
+
+## County Trends
+
+Examining daily outcome rates by Colorado county. Some of the less populated counties may have some unstable rates. 
+
+```{r county time series}
+county_denom <- census_estimates %>% 
+  filter(STATE == "08" & COUNTY != "000") %>% 
+  # select variables with popestimate in title
+  select(FIPS, POPESTIMATE2010:POPESTIMATE2016) %>% 
+  gather("year", "population", POPESTIMATE2010:POPESTIMATE2016) %>% 
+  # split out only the year
+  mutate(admit_year = as.numeric(stringr::str_replace(year, "POPESTIMATE", ""))) %>% 
+  select(FIPS, admit_year, population)
+
+# read colo geofacet grid
+colo_grid <- read_csv("./data/shapefiles/colo_county_grid.csv")
+
+# county name of fips
+county_name <- colo_grid %>% select(code, name) %>% 
+  rename(county_name = name, FIPS = code)
+
+# time series
+county_daily_count <- co_hosp_census %>% 
+  # group by admit dat
+  group_by(FIPS, admit) %>% 
+  summarise(cvd_n = sum(cvd_dx), resp_n = sum(resp_dx)) %>% 
+  # make sum of cvd and resp outcomes and admit_year variable to join with denom
+  mutate(cardiopulm_n = cvd_n + resp_n,
+         admit_year = lubridate::year(admit)) %>% 
+  left_join(county_denom, by = c("FIPS","admit_year")) %>% 
+  # calculate daily rates per 10,000 persons
+  mutate(cardiopulm_per_100k = (cardiopulm_n/population)*100000,
+         cvd_per_100k = (cvd_n/population)*100000,
+         resp_per_100k = (resp_n/population)*100000) %>% 
+  # gather rate columns in one column 
+  gather("outcome", "rate", cardiopulm_per_100k:resp_per_100k) %>% 
+  left_join(county_name, by = "FIPS") %>% 
+  filter(FIPS != "08159" & population > 10000)
+```
+
+Plots of county time series. I'd like to try out geofacet package, but I'd have to make a geogrid for Colorado. Maybe later. Yup have problems with rates in sparsely populated counties. I suppressed counties with populations under 10,000. Seriously considering some emprical Bayes estimates of a daily rate. This may not be an issue when calculating yearly or seasonal rates.
+
+```{r cvd county plot}
+county_cvd <- county_daily_count %>% 
+  filter(outcome == "cvd_per_100k")
+
+# plot of rate
+p_rate <- ggplot(data = county_cvd, 
+                 aes(x=admit, y=rate)) +
+  geom_point(size = 0.25, color = "red") +
+  geofacet::facet_geo(~county_name, grid = colo_grid) +
+  ylab("Daily rate per 100k persons") +
+  xlab("Date") +
+  ggtitle("Daily rate of CVD ER/urgent care visits in Colorado") +
+  theme_bw() 
+# plot chart
+p_rate
+```
+
+Respiratory rates vary. Scale is a little wonky too where some of the larger counties like Denver or El Paso have lower rates than less populated counties. Not sure if this is real or a result of small denominators.
+
+```{r respiratory county plot}
+county_resp <- county_daily_count %>% 
+  filter(outcome == "resp_per_100k")
+
+# plot of rate
+p_rate <- ggplot(data = county_resp, 
+                 aes(x=admit, y=rate)) +
+  geom_point(size = 0.25, color = "blue") +
+  geofacet::facet_geo(~county_name, grid = colo_grid) +
+  ylab("Daily rate per 100k persons") +
+  xlab("Date") +
+  ggtitle("Daily rate of of respiratory ER/urgent care visits in Colorado") +
+  theme_bw() 
+# plot chart
+p_rate
+```
+
+## Seasonal Rates
+
+State-wide seasonal rate over the time period. 
+
+```{r state seasonal trends}
+seasonal_rates <- co_hosp_census %>% 
+  group_by(ADMYY, season) %>% 
+  summarise(cvd_n = sum(cvd_dx), resp_n = sum(resp_dx)) %>% 
+  # make sum of cvd and resp outcomes and admit_year variable to join with denom
+  mutate(cardiopulm_n = cvd_n + resp_n,
+         admit_year = as.numeric(paste0(20,ADMYY))) %>% 
+  left_join(colorado_denom, by = "admit_year") %>% 
+  # calculate daily rates per 100k persons
+  mutate(cardiopulm_per_1000py = (cardiopulm_n/population)*1000,
+         cvd_per_1000py = (cvd_n/population)*1000,
+         resp_per_1000py = (resp_n/population)*1000) %>% 
+  # gather rate columns in one column 
+  gather("outcome", "rate", cardiopulm_per_1000py:resp_per_1000py) %>% 
+  # remove 2015 as it's not a full year of data
+  filter(admit_year != 2015)
+
+# sum up seasonal estimates and calculate rate
+season_agg_rates <- co_hosp_census %>% 
+  group_by(season) %>% 
+  summarise(cvd_n = sum(cvd_dx), resp_n = sum(resp_dx)) %>% 
+  # make sum of cvd and resp outcomes and admit_year variable to join with denom
+  mutate(cardiopulm_n = cvd_n + resp_n,
+         admit_year = as.numeric(paste0(20,ADMYY)))
+  
+```
+
+Plot of seasonal rate.
+
+```{r plot seasonal rate state}
+# plot of rate
+p_rate <- ggplot(data = seasonal_rates, 
+    aes(x=season, y=rate, group=as.factor(admit_year), 
+        colour=as.factor(admit_year))) +
+  geom_point(size = 0.5) +
+  facet_wrap(~outcome) +
+  ylab("Seasonal rate per 1000 persons per 3 months") +
+  xlab("Season") +
+  ggtitle("Rate of cardiopulmonary ER/urgent care visits in Colorado") +
+  theme_bw()
+# plot chart
+p_rate
+```
+
+CVD rates don't really look that different by years for seasons. I don't really like this plot. I want to work in a time scale (YYYY-mid month of season) but I'll come back to it.
+
+### Thoughts on unstable rates
+
+I considered small area estimation, but I would need the census survey dataframe and a variable of small area (census tract) in the dataframe to estimate expected population? in that tract. I don't think it would work in this case because I'm trying to use aggregated estimates of a larger area to estimate rates in a smaller area. I still think emprical bayes might be a good approach here.
+
