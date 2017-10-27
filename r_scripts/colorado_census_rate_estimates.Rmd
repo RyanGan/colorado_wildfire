@@ -7,7 +7,7 @@ output: html_document
 
 ## Document Purpose
 
-Contains descriptive epidemiology of cardiopulmonary emergency department (ED) and urgent care visits in Colorado from 2010 to September of 2015. We've decided to limit the period of estimates from 2010 to 2014. Using the 2014 census estimates Sheena provided.
+Contains descriptive epidemiology of cardiopulmonary emergency department (ED) and urgent care visits in Colorado from 2010 to September of 2015. We've decided to limit the period of estimates from 2010 to 2014. Using the 2014 census estimates Sheena.
 
 ```{r setup}
 library(tidyverse)
