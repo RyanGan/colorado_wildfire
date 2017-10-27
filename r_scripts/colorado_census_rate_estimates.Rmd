@@ -17,22 +17,10 @@ library(sf)
 Note 2017-10-26: I need to go back and fix my join in the poly_id file as it's duplicating counties.
 
 ```{r data import}
-# read county population estimates
-census_path <- "./data/health/co-est2016-alldata.csv"
-census_estimates <- read_csv(census_path) %>% 
-  # making state and county fips code
-  mutate(FIPS = paste0(STATE, COUNTY))
-
 # read in census assignments
-poly_path <- "./data/smoke/colorado_poly_ids.csv"
-poly_id <- read_csv(poly_path) %>% 
-  # fips assigned by proportion intersect (I want to retain to check)
-  rename(fips_pi = FIPS) %>% 
-  mutate(WRFGRID_ID = as.character(WRFGRID_ID)) %>% 
-  # noticed i'm duplicating county fips multiple times; probably happened
-  # in the first join in the assign to zip markdown file; need to fix there
-  group_by(WRFGRID_ID) %>% 
-  slice(which.max(fips_prop))
+id_path <- "./data/smoke/colorado_census_ids.csv"
+census_id <- read_csv(id_path) %>% 
+  mutate(WRFGRID_ID = as.character(WRFGRID_ID))
 
 # read in the dataframe with outcomes 
 hosp_path <- "./data/health/co_hosp_w_outcome_df.csv"
@@ -55,7 +43,7 @@ co_hosp <- read_csv(hosp_path) %>%
 # join with poly ids
 co_hosp_census <- co_hosp %>%
   # join with wrfgrid 
-  left_join(poly_id, by = "WRFGRID_ID") %>% 
+  left_join(census_id, by = "WRFGRID_ID") %>% 
   # mutate WRFGRID ID to factor
   mutate(WRFGRID_ID = as.factor(WRFGRID_ID),
   # adding in a season variable for estimation by season 
@@ -258,16 +246,56 @@ season_agg_rates <- co_hosp_census %>%
 co_tract_2014_path <- "./data/shapefiles/2014_CO_TRACT"
 co_census_2014 <- st_read(dsn=co_tract_2014_path, layer="CO_Tracts_2014")
 
-plot(co_census_2014$geometry)
-summary(co_census_2014)
+# read in populations and metadata for the tracts
+# i believe i may only need B00001e1 
+census_data <- read_csv(paste0("./data/shapefiles/2014_CO_TRACT/",
+  "Populations_CO_Tracts_2014.txt")) 
+
+# census meta data for variable names
+census_meta <- read_csv(paste0("./data/shapefiles/2014_CO_TRACT/",
+  "Metadata_CO_Tracts_2014.txt")) %>% 
+  # filter to the column names in the census population
+  filter(Short_Name %in% colnames(census_population))
+
+# limit census data to just total population
+census_population <- census_data %>% 
+  select(GEOID, B01001e1) %>% 
+  # need to only extract the last part of the GEOID to join 
+  mutate(GEOID = stringr::str_sub(GEOID, start = 8L)) %>% 
+  rename(total_pop = B01001e1)
+
 ```
+
+I have a count of outcomes over the 2010-2014 5 year period, and a denominator of persons in each GEOID over this time. I want to estimate the rate of outcomes per X persons per 5 years. I think I need to assume that each person will contribute a 5 years of time, so I need to multiple they denominator by 5. Discuss this assumption with Sheena and Sheryl.
 
 ```{r census period rate}
 census_rate_period <- co_hosp_census %>% 
   filter(ADMYY != 15) %>% 
   group_by(GEOID) %>% 
-  summarise(cvd_n = sum(cvd_dx), resp_n = sum(resp_dx))
+  summarise(cvd_n = sum(cvd_dx), resp_n = sum(resp_dx)) %>% 
+  # join with census denom
+  left_join(census_population, by = "GEOID") %>% 
+  # calculate rate 
+  mutate(cardiopulm_n = cvd_n + resp_n,
+  total_pop5y = total_pop*5,
+  cardiopulm_per_100_5y = (cardiopulm_n/total_pop5y)*100,
+  cvd_per_100_5y = (cvd_n/total_pop5y)*100,
+  resp_per_100_5y = (resp_n/total_pop5y)*100)
+
+# head of these calculations
+head(census_rate_period)
 ```
+
+Checking distribution of the rates. Add small multiples or colors.
+
+```{r census rate distribution}
+p <- ggplot(data = census_rate_period, aes(x= cvd_per_100_5y)) +
+  geom_density()
+
+p
+```
+
+
 
 ### Thoughts on unstable rates
 

@@ -22,22 +22,6 @@ Bringing in WRF-Grid and census tract shape files as simple features files using
 # census tract ----
 census_path <- "./data/shapefiles/2014_CO_TRACT"
 colorado_census <- st_read(dsn=census_path, layer="CO_Tracts_2014")
-# read in populations and metadata for the tracts
-# i believe i may only need B00001e1 
-census_data <- read_csv(paste0("./data/shapefiles/2014_CO_TRACT/",
-  "Populations_CO_Tracts_2014.txt")) 
-
-# census meta data for variable names
-census_meta <- read_csv(paste0("./data/shapefiles/2014_CO_TRACT/",
-  "Metadata_CO_Tracts_2014.txt")) %>% 
-  # filter to the column names in the census population
-  filter(Short_Name %in% colnames(census_population))
-
-# limit census data to just total population
-census_population <- census_data %>% 
-  select(GEOID, B01001e1) %>% 
-  rename(total_pop = B01001e1)
-
 # retrieve coordinate ref system from census tract
 nad83 <- st_crs(colorado_census)
 
