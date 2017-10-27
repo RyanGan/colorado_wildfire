@@ -7,7 +7,7 @@ output: html_document
 
 ## Purpose
 
-As part of the Colorado wildfire project and the American Lung Association project, I will need to assign ZIP code, county, and census track IDs to cells in the WRF-grid. 
+As part of the American Lung Association project, I will need to assign census track IDs to cells in the WRF-grid. 
 
 Loading in the "tidyverse" and "sf"" package. A quick note about the "sf" package, I've suppressed warnings because it will often list this warning "although coordinates are longitude/latitude, it is assumed that they are planar" when performing functions on two sf files. This is only really important for calculations close to the poles. Differences further away from the poles are negligible.
 
@@ -16,20 +16,28 @@ library(tidyverse)
 library(sf)
 ```
 
-Bringing in WRF-Grid, ZIP code, county, and census tract shape files as simple features files using the "sf" package. I will return to ZIP since it might change year to year. Census might be okay since it might only change every decade? Sheena would probably know for sure.
+Bringing in WRF-Grid and census tract shape files as simple features files using the "sf" package. Using 2014 Census polygons and estimates Sheena provided.
 
 ```{r file imports}
-# county grid ----
-county_path <- "./data/shapefiles/colorado_county"
-colorado_county <- st_read(dsn=county_path, layer="colorado_county") %>% 
-  # make a general FIPS code
-  mutate(FIPS = as.factor(paste0(STATEFP, COUNTYFP)))
-# retrieve coordinate reference system from census shapefile
-#wgs84 <- st_crs(colorado_county)
-
 # census tract ----
-census_path <- "./data/shapefiles/ACS_2015_5YR_TRACT_CO"
-colorado_census <- st_read(dsn=census_path, layer="ACS_2015_5YR_TRACT_CO")
+census_path <- "./data/shapefiles/2014_CO_TRACT"
+colorado_census <- st_read(dsn=census_path, layer="CO_Tracts_2014")
+# read in populations and metadata for the tracts
+# i believe i may only need B00001e1 
+census_data <- read_csv(paste0("./data/shapefiles/2014_CO_TRACT/",
+  "Populations_CO_Tracts_2014.txt")) 
+
+# census meta data for variable names
+census_meta <- read_csv(paste0("./data/shapefiles/2014_CO_TRACT/",
+  "Metadata_CO_Tracts_2014.txt")) %>% 
+  # filter to the column names in the census population
+  filter(Short_Name %in% colnames(census_population))
+
+# limit census data to just total population
+census_population <- census_data %>% 
+  select(GEOID, B01001e1) %>% 
+  rename(total_pop = B01001e1)
+
 # retrieve coordinate ref system from census tract
 nad83 <- st_crs(colorado_census)
 
@@ -38,7 +46,7 @@ wrf_path <- "./data/shapefiles/co_grid_shp"
 wrf_grid <- st_read(dsn=wrf_path, layer="co_grid")
 # set crs of grid and county to nad83 to be the same
 st_crs(wrf_grid) <- nad83
-colorado_county <- st_transform(colorado_county, nad83) 
+
 
 # lat/lon of power plants ----
 plant_id <- c("pueblo", "colo_springs")
@@ -46,42 +54,6 @@ lat <- c(38.2081, 38.8244)
 lon <- c(-104.5747, -104.8331)
 
 plant_locations <- tibble(plant_id, lat, lon) 
-```
-
-# Assigning county
-
-This should be the most straight-forward as counties are the largest boundary I'd like to assign and most grid cells should fall nicely in to one county polygon. I'll plot a map of Colorado counties and overlay the WRF grid using the development version of ggplot2 which contains "geom_sf" that works with simple features.
-
-```{r county grid plot, eval=F, warning=F}
-# plot colorado counties and overlay wrf-grid
-m <- ggplot() +
-  geom_sf(data = colorado_county, aes(fill=NAME)) +
-  geom_sf(data = wrf_grid, alpha = 0) +
-  theme_bw()
-
-# print map
-m
-```
-
-It took some time to print this map so I'm going to subset to the two counties where the two coal-fired power plants of interest for the American Lung Association study are located, El Paso (city of Colorado Springs) and Pueblo (city of Pueblo). It would also make a reasonable example for a vignette if I ever make a package.
-
-Plot of the county boundaries and the grids that overlap the boundaries. I will eventually add the power plants and city locations.
-
-```{r subset el paso and pueblo, warning=F}
-# el paso = 041 and pueblo = 101
-el_pueblo <- colorado_county %>% 
-  filter(COUNTYFP == "041" | COUNTYFP == "101")
-# subset grid to cells in county
-el_pueblo_grid <- wrf_grid[el_pueblo,]
-  
-# map
-m <- ggplot(data = el_pueblo) +
-  geom_sf(aes(fill=NAME), alpha = 0.5) +
-  geom_sf(data=el_pueblo_grid, alpha = 0) +
-  geom_point(data=plant_locations, aes(x=lon, y=lat), colour = "red") +
-  theme_bw()
-# print map
-m
 ```
 
 ## Custom functions
@@ -174,22 +146,7 @@ pi_matrix <- function(grid_sf, grid_id, prop_int_df, poly_id){
 
 I'll need to double check to make sure this process works. Takes about a minute to calculate proportion intersect for each county and WRF cell in state. I will eventually come back and calculate intersections for ZIP codes, but I think it would be best to calculate intersect for each year for ZIP code polygons as they may change.
 
-```{r county and census assignment}
-# county ---
-# create dataframe of intersects and time computation
-start_time <- Sys.time()
-# proportion intersect for the entire state
-co_county_df <- proportion_intersect(poly = colorado_county, poly_id = FIPS,
-                                     grid = wrf_grid, grid_id = WRFGRID_ID)
-
-# calculate run time
-stop_time <- Sys.time()
-compute_time <- stop_time - start_time
-compute_time
-
-# grid to county id function
-co_county_id <- grid_to_poly(co_county_df, WRFGRID_ID)
-
+```{r  census assignment}
 # census ---
 start_time <- Sys.time()
 # proportion intersect for entire state with census and grid
@@ -204,31 +161,16 @@ compute_time
 # grid to census id function
 co_census_id <- grid_to_poly(co_census_df, WRFGRID_ID)
 
-# join census and county ids together
-colorado_poly_ids <- co_county_df %>% 
-  rename(fips_prop = proportion) %>% 
-  full_join(co_census_id, by = "WRFGRID_ID") %>% 
-  rename(geoid_prop = proportion)
-
-# print out first 6 lines of polygon IDs to assign to WRFGRID 
-head(colorado_poly_ids)
+head(co_census_id)
 
 # write this file; will add zipcode later
-write_path <- "./data/smoke/colorado_poly_ids.csv"
-write_csv(colorado_poly_ids, write_path)
+write_path <- "./data/smoke/colorado_census_ids.csv"
+write_csv(co_census_id, write_path)
 ```
 
 Using my proportion intersect to matrix function to create the WRFGRID by polygon matrices that will be used to population-weight pollutant estimates.
 
 ```{r proportion intersect matrices}
-# county
-county_pi_matrix <- pi_matrix(grid_sf = wrf_grid, grid_id = WRFGRID_ID, 
-                              prop_int_df = co_county_df, poly_id = FIPS)
-# check dimensions of county matrix 
-# should be 29580 wrfgrids by 64 counties plus grid id column
-# i think something in the function is duplicating
-dim(county_pi_matrix)
-
 # census
 census_pi_matrix <- pi_matrix(grid_sf = wrf_grid, grid_id = WRFGRID_ID, 
                               prop_int_df = co_census_df, poly_id = GEOID)
@@ -236,10 +178,6 @@ census_pi_matrix <- pi_matrix(grid_sf = wrf_grid, grid_id = WRFGRID_ID,
 dim(census_pi_matrix)
 
 # write census and county matrices ----
-# write county
-write_county <- "./data/smoke/colorado_county_wrf_int_prop.csv"
-write_csv(county_pi_matrix, write_county)
-
 # write census
 write_census <- "./data/smoke/colorado_census_wrf_int_prop.csv"
 write_csv(census_pi_matrix, write_census)
