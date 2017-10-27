@@ -7,17 +7,12 @@ output: html_document
 
 ## Document Purpose
 
-Contains descriptive epidemiology of cardiopulmonary emergency department (ED) and urgent care visits in Colorado from 2010 to September of 2015.
+Contains descriptive epidemiology of cardiopulmonary emergency department (ED) and urgent care visits in Colorado from 2010 to September of 2015. We've decided to limit the period of estimates from 2010 to 2014. Using the 2014 census estimates Sheena provided.
 
 ```{r setup}
 library(tidyverse)
+library(sf)
 ```
-
-Importing data. Also making seasons based on Northern meteorological seasons.
-Spring: March 1 to May 31 (Month 3 to 5)
-Summer: June 1 to August 31 (Month 6 to 8)
-Fall: September 1 to November 30 (Month 9 to 11)
-Winter: December 1 to February 28 (Month 12 to 2)
 
 Note 2017-10-26: I need to go back and fix my join in the poly_id file as it's duplicating counties.
 
@@ -254,6 +249,24 @@ season_agg_rates <- co_hosp_census %>%
          cardiopulm_per_1000py = (cardiopulm_n/population)*1000,
          cvd_per_1000py = (cvd_n/population)*1000,
          resp_per_1000py = (resp_n/population)*1000)
+```
+
+## Census Estimates
+
+```{r}
+# read shapefile Sheena sent 
+co_tract_2014_path <- "./data/shapefiles/2014_CO_TRACT"
+co_census_2014 <- st_read(dsn=co_tract_2014_path, layer="CO_Tracts_2014")
+
+plot(co_census_2014$geometry)
+summary(co_census_2014)
+```
+
+```{r census period rate}
+census_rate_period <- co_hosp_census %>% 
+  filter(ADMYY != 15) %>% 
+  group_by(GEOID) %>% 
+  summarise(cvd_n = sum(cvd_dx), resp_n = sum(resp_dx))
 ```
 
 ### Thoughts on unstable rates
