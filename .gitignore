@@ -10,3 +10,5 @@ data/
 # ignoring word files
 *.docx
 *.doc
+
+*.html
