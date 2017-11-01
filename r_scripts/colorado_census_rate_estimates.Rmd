@@ -77,8 +77,8 @@ county_path <- "../data/shapefiles/colorado_county"
 county_sf <- st_read(dsn=county_path, layer = "colorado_county") %>% 
   # make fips variable
   mutate(FIPS = paste0(STATEFP, COUNTYFP))
-# assign nad83
-st_transform(county_sf, nad83)
+  # assign nad83
+  st_transform(county_sf, nad83)
 
 # subset to study area 
 # pikes peak study area: Teller and El Paso
@@ -457,7 +457,28 @@ p <- ggplot(el_paso_census_sf) +
 p
 ```
 
-Missing a lot of estimates for Colorado Springs census tracts. 
+Missing a lot of estimates for Colorado Springs census tracts. This could be because the WRF grid contains too many census tracts?
+
+```{r grid census check,echo=F, message=F, warning=F}
+# read wrf grid
+wrf_path <- "../data/shapefiles/co_grid_shp"
+wrf_grid_sf <- st_read(dsn=wrf_path, layer="co_grid")
+# set crs of grid and county to nad83 to be the same
+st_crs(wrf_grid_sf) <- nad83
+# subset to el paso
+wrf_el_paso_sf <- wrf_grid_sf[el_paso_census_sf,]
+
+# plot grid over census
+# plot
+p <- ggplot(el_paso_census_sf) +
+  geom_sf(colour="red", alpha=0.2) +
+  geom_sf(data=wrf_el_paso_sf, alpha = 0) +
+  ggtitle("El Paso grid and tract overlap") +
+  theme_bw()
+# print map
+p
+
+```
 
 ### Thoughts on unstable rates
 

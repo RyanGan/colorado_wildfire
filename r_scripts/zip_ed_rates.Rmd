@@ -1,0 +1,217 @@
+---
+title: "ZIP code emergency department rates"
+author: "Ryan Gan"
+date: "11/1/2017"
+output: html_document
+---
+## Document background/overview
+
+As part of the Colorado chapter of the American Lung Assocition's project to qunatify the health impacts of two coal-fired power plants in Colorado Springs and Pueblo, we need to calculate baseline cardiopulmonary emergency department (ED) visit rates in Colorado from 2010 to September of 2015. We've decided to limit the period of estimates from 2010 to 2014. I also had issues with calculating at the census tract level so I'm going to try ZIP code.
+
+Set up. Calling tidyverse and sf packages.
+```{r setup, echo=F, message=F, warning=F}
+library(tidyverse)
+library(sf)
+```
+
+Importing county denominators and simple features object as well as hospital claims data. 
+
+```{r data import, echo=F, message=F, warning=F}
+# read in the dataframe with outcomes 
+hosp_path <- "../data/health/co_hosp_w_outcome_df.csv"
+co_hosp <- read_csv(hosp_path) %>% 
+  # noticed broomfield county_geo 014 was sometimes assigned county_final 159
+  # there is no county 159. All other spatial indicators suggest broomfield 014
+  mutate(county_final = ifelse(county_geo == "014" & county_final == "159", 
+                               "014", county_final),
+    # make fips code
+    FIPS = paste0("08", county_final),
+    # adding in a season variable for estimation by season 
+    season = as.factor(ifelse(ADMMM >= 3 & ADMMM <= 5, "spring",
+             ifelse(ADMMM >= 6 & ADMMM <= 8, "summer",
+               ifelse(ADMMM >= 9 & ADMMM <= 11, "fall", "winter")))),
+  # adding in a year indicator for season to check for trends
+  season_yr = as.factor(paste0(season, ADMYY)),
+    # set wrfgrid values of 0 to missing
+    WRFGRID_ID = ifelse(WRFGRID_ID == 0, NA, WRFGRID_ID),
+    WRFGRID_ID = as.character(WRFGRID_ID)) %>% 
+  # remove those missing a WRFGRID ID
+  filter(!is.na(WRFGRID_ID))
+
+# import census denominators for counties and states ----
+census_estimates <- read_csv("../data/health/co-est2016-alldata.csv") %>% 
+  # make fips variable
+  mutate(FIPS = paste0(STATE, COUNTY))
+
+# lat/lon of power plants ----
+plant_id <- c("pueblo", "colo_springs")
+lat <- c(38.2081, 38.8244)
+lon <- c(-104.5747, -104.8331)
+
+plant_locations <- tibble(plant_id, lat, lon) 
+```
+
+Read in ZIP and county simple features that will be used for maps latter.
+```{r simple features import, echo=F, warning=F, message=F}
+# read zip shapefile Sheena sent 
+co_zip_2014_path <- "../data/shapefiles/2014_ZCTA_Population"
+co_zip_2014_sf <- st_read(dsn=co_zip_2014_path, layer="CO_ZCTA_2014")
+# save crs 
+nad83 <- st_crs(co_zip_2014_sf)
+
+# read in populations
+zip_pop <- read_csv(paste0("../data/shapefiles/2014_ZCTA_Population/",
+  "Populations_CO_ZCTA_2014.txt")) %>% 
+  select(ZCTA5CE10, B01001e1) %>% 
+  # need to only extract the last part of the GEOID to join 
+  rename(ZIP = ZCTA5CE10,
+    total_pop = B01001e1) %>% 
+  mutate(ZIP = as.character(ZIP))
+
+# read county shapefile
+county_path <- "../data/shapefiles/colorado_county"
+county_sf <- st_read(dsn=county_path, layer = "colorado_county") %>% 
+  # make fips variable
+  mutate(FIPS = paste0(STATEFP, COUNTYFP))
+  # assign nad83
+  st_transform(county_sf, nad83)
+
+# subset to study area 
+# pikes peak study area: Teller and El Paso
+# soutern central: Custer, Huerfano, Pueblo, and Las Animas
+ala_study_sf <- county_sf %>% 
+  filter(NAME %in% c("Teller", "El Paso", "Custer", "Huerfano", 
+                   "Pueblo", "Las Animas")) %>% 
+  st_transform(nad83)
+```
+
+## ZIP rate estimates
+
+Estimating 2010-2014 period rates for census tracts in Colorado and then subsetting to the ALA study area to make viewing easier.
+
+```{r zip period rate, echo=F, message=F, warning=F}
+zip_rate_period <- co_hosp %>% 
+  filter(ADMYY != 15) %>% 
+  group_by(ZIP) %>% 
+  summarise(cvd_n = sum(cvd_dx), resp_n = sum(resp_dx)) %>% 
+  # filter to zip codes in colorado
+  filter(as.numeric(ZIP) >= 80001 & as.numeric(ZIP) <= 81658) %>% 
+  # join with census denom
+  right_join(zip_pop, by = "ZIP") %>% 
+  # removing zip codes with 0 population
+  filter(total_pop != 0) %>% 
+  # calculate rate 
+  mutate(cvd_n = ifelse(is.na(cvd_n), 0, cvd_n),
+  resp_n = ifelse(is.na(resp_n), 0, resp_n),
+  # set NA cvd resp n to 0
+  cardiopulm_n = cvd_n + resp_n,
+  total_pop5y = total_pop*5,
+  cardiopulm_per_100p5y = (cardiopulm_n/total_pop5y)*100,
+  cvd_per_100p5y = (cvd_n/total_pop5y)*100,
+  resp_per_100p5y = (resp_n/total_pop5y)*100)
+
+# join with zip sf
+zip_rate_sf <- co_zip_2014_sf %>% 
+  rename(ZIP = ZCTA5CE10) %>%
+  mutate(ZIP = as.character(ZIP)) %>% 
+  left_join(zip_rate_period, by = "ZIP")
+```
+
+### ZIP code CVD rate map
+
+```{r ala cvd rate map, echo=F, message=F, warning=F}
+# ALA study area
+ala_sf <- st_intersection(zip_rate_sf, ala_study_sf)
+
+# plot
+p <- ggplot(ala_sf) +
+  geom_sf(aes(fill=cvd_per_100p5y), colour = "white") +
+  scale_fill_gradient(name="CVD Rate", low = "#cbb4d4", high = "#20002c") +
+  geom_sf(data=ala_study_sf, alpha = 0) +
+  geom_point(data=plant_locations, aes(x=lon,y=lat), colour= "red") +
+  ggtitle("ALA ZIP CVD ED rates per 100 persons from 2010 to 2014") +
+  theme_bw()
+# print map
+p
+```
+
+### ZIP code respiratory rate map
+
+```{r ala resp rate map, echo=F, message=F, warning=F}
+# plot
+p <- ggplot(ala_sf) +
+  geom_sf(aes(fill=resp_per_100p5y), colour = "white") +
+  scale_fill_gradient(name= "Resp Rate", low = "#26d0ce", high = "#1A2980") +
+  geom_sf(data=ala_study_sf, alpha = 0) +
+  geom_point(data=plant_locations, aes(x=lon,y=lat), colour= "red") +
+  ggtitle("ALA ZIP respiratory ED rates per 100 persons from 2010 to 2014") +
+  theme_bw()
+# print map
+p
+```
+
+
+### El Paso CVD ED rate
+
+Limiting to El Paso to view Colorado Springs area.
+
+```{r el paso cvd map, echo=F, message=F, warning=F}
+el_paso_sf <- ala_study_sf %>% 
+  filter(NAME == "El Paso") %>% 
+  st_transform(nad83)
+
+el_paso_zip_sf <- st_intersection(zip_rate_sf, el_paso_sf)
+
+# cs plant
+cs_plant <- plant_locations %>% filter(plant_id == "colo_springs")
+
+# plot
+p <- ggplot(el_paso_zip_sf) +
+  geom_sf(aes(fill=cvd_per_100p5y), colour = "white") +
+  scale_fill_gradient(name = "CVD Rate", low = "#cbb4d4", high = "#20002c") +
+  geom_sf(data=el_paso_sf, alpha = 0) +
+  geom_point(data=cs_plant, aes(x=lon,y=lat), colour= "red") +
+  ggtitle("El Paso CVD ED rates per 100 persons from 2010 to 2014") +
+  theme_bw()
+# print map
+p
+```
+
+### El Paso respiratory ED rate 
+
+```{r el paso resp map, echo=F, message=F, warning=F}
+# plot
+p <- ggplot(el_paso_zip_sf) +
+  geom_sf(aes(fill=resp_per_100p5y), colour = "white") +
+  scale_fill_gradient(name = "Resp Rate", low = "#26d0ce", high = "#1A2980") +
+  geom_sf(data=el_paso_sf, alpha = 0) +
+  geom_point(data=cs_plant, aes(x=lon,y=lat), colour= "red") +
+  ggtitle("El Paso Resp ED rates per 100 persons from 2010 to 2014") +
+  theme_bw()
+# print map
+p
+```
+
+```{r ed rate season, eval = F, echo=F}
+zip_rate_season <- co_hosp %>% 
+  filter(ADMYY != 15) %>% 
+  group_by(ZIP, season) %>% 
+  summarise(cvd_n = sum(cvd_dx), resp_n = sum(resp_dx)) %>% 
+  # filter to zip codes in colorado
+  filter(as.numeric(ZIP) >= 80001 & as.numeric(ZIP) <= 81658) %>% 
+  # join with census denom
+  right_join(zip_pop, by = "ZIP") %>% 
+  # removing zip codes with 0 population
+  filter(total_pop != 0) %>% 
+  # calculate rate 
+  mutate(cvd_n = ifelse(is.na(cvd_n), 0, cvd_n),
+  resp_n = ifelse(is.na(resp_n), 0, resp_n),
+  # set NA cvd resp n to 0
+  cardiopulm_n = cvd_n + resp_n,
+  total_pop15m = total_pop*1.25,
+  cardiopulm_per_100p15m = (cardiopulm_n/total_pop15m)*100,
+  cvd_per_100p15m = (cvd_n/total_pop15m)*100,
+  resp_per_100p15m = (resp_n/total_pop15m)*100)
+
+
+```
