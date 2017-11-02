@@ -55,7 +55,7 @@ Read in ZIP and county simple features that will be used for maps latter.
 ```{r simple features import, echo=F, warning=F, message=F}
 # read zip shapefile Sheena sent 
 co_zip_2014_path <- "../data/shapefiles/2014_ZCTA_Population"
-co_zip_2014_sf <- st_read(dsn=co_zip_2014_path, layer="CO_ZCTA_2014")
+co_zip_2014_sf <- st_read(dsn=co_zip_2014_path, layer="CO_ZCTA_2014", quiet = T)
 # save crs 
 nad83 <- st_crs(co_zip_2014_sf)
 
@@ -72,9 +72,9 @@ zip_pop <- read_csv(paste0("../data/shapefiles/2014_ZCTA_Population/",
 county_path <- "../data/shapefiles/colorado_county"
 county_sf <- st_read(dsn=county_path, layer = "colorado_county") %>% 
   # make fips variable
-  mutate(FIPS = paste0(STATEFP, COUNTYFP))
+  mutate(FIPS = paste0(STATEFP, COUNTYFP)) %>% 
   # assign nad83
-  st_transform(county_sf, nad83)
+  st_transform(nad83)
 
 # subset to study area 
 # pikes peak study area: Teller and El Paso
@@ -85,7 +85,7 @@ ala_study_sf <- county_sf %>%
   st_transform(nad83)
 ```
 
-## ZIP rate estimates
+## ZIP rate estimates 2010-2014
 
 Estimating 2010-2014 period rates for census tracts in Colorado and then subsetting to the ALA study area to make viewing easier.
 
@@ -117,7 +117,7 @@ zip_rate_sf <- co_zip_2014_sf %>%
   left_join(zip_rate_period, by = "ZIP")
 ```
 
-### ZIP code CVD rate map
+### ZIP code CVD rate map 2010-2014
 
 ```{r ala cvd rate map, echo=F, message=F, warning=F}
 # ALA study area
@@ -150,8 +150,7 @@ p <- ggplot(ala_sf) +
 p
 ```
 
-
-### El Paso CVD ED rate
+### El Paso CVD ED rate 2010-2014
 
 Limiting to El Paso to view Colorado Springs area.
 
@@ -177,7 +176,7 @@ p <- ggplot(el_paso_zip_sf) +
 p
 ```
 
-### El Paso respiratory ED rate 
+### El Paso respiratory ED rate 2010-2014
 
 ```{r el paso resp map, echo=F, message=F, warning=F}
 # plot
@@ -192,7 +191,7 @@ p <- ggplot(el_paso_zip_sf) +
 p
 ```
 
-```{r ed rate season, eval = F, echo=F}
+```{r ed rate season, warning=F, message=F, echo=F}
 zip_rate_season <- co_hosp %>% 
   filter(ADMYY != 15) %>% 
   group_by(ZIP, season) %>% 
@@ -212,6 +211,23 @@ zip_rate_season <- co_hosp %>%
   cardiopulm_per_100p15m = (cardiopulm_n/total_pop15m)*100,
   cvd_per_100p15m = (cvd_n/total_pop15m)*100,
   resp_per_100p15m = (resp_n/total_pop15m)*100)
+```
 
+### Summary of max and median rate per 100 persons for seasonal period (1.25 years or 15 months)
 
+Subsetted to ALA study region. Minimum rate for both CVD and respriatory ED rates is 0. May have sparse data problem at seasonl level.  
+
+```{r season summary, echo=F, warning=F, message=F}
+season_summary <- zip_rate_season %>% 
+  # filter to ala study area
+  filter(ZIP %in% ala_sf$ZIP) %>% 
+  group_by(season) %>% 
+  summarise(max_cvd_rate = max(cvd_per_100p15m), 
+    med_cvd_rate = median(cvd_per_100p15m),
+    max_resp_rate = max(resp_per_100p15m), 
+    med_resp_rate = median(resp_per_100p15m)) %>% 
+  filter(!is.na(season)) 
+
+# print rate
+season_summary
 ```
