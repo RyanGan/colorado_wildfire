@@ -1,0 +1,19 @@
+---
+title: "Descriptive Epi for Sheryl's Grant"
+author: "Ryan Gan"
+date: "2018-02-09"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Introduction
+
+Descriptive hospital inpatient numbers for Colorado for Sheryl's grant.
+
+```{r}
+
+```
+
+
+
