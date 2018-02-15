@@ -25,6 +25,7 @@ knitr::opts_chunk$set(fig.height = 6, fig.width = 8, fig.align = "center",
 library(tidyverse)
 library(sf)
 library(raster)
+library(ncdf4)
 ```
 
 Importing Colorado cardiopulmonary inpatient data, coding for respiratory outcomes, and filtering to only primary diagnosis of respiratory outcomes. Note, I'm able to seperate out unique visits, but not unique persons with the provided data. Also, I do not have outcomes after 2015-09-30 because of the transition from ICD-9 to ICD-10 nationwide.
@@ -376,11 +377,13 @@ Number of the whole Colorado dataset. Study period is 2010 to end of September 2
 n_co <- base::nrow(co_resp_hosp)
 n_co
 ```
+
 #### Front Range n for Colorado
 ```{r fr_n}
 n_obs <- base::nrow(co_resp_fr)
 n_obs
 ```
+
 #### Proportion of Front Range/Colorado
 ```{r fr_prop}
 prop <- round(base::nrow(co_resp_fr)/base::nrow(co_resp_hosp),2)
@@ -529,4 +532,178 @@ race_tab <- co_resp_fr %>%
 
 race_tab
 ```
- 
+
+## PM~2.5~ Distribution
+
+I'm going to read in the GWR estimates Kate produced for Colorado.
+
+Starting by reading in Western US grid and limiting to same study extent as the previous WRF-GRID. I've also plotted the 15x15 km grid (red) over the 3x3 km grid (blue) we have for the Colorado morbidity data. The grids will have to be linked in the future, but I don't think it will be too tricky. I think you could just take the centroids of the smaller grid and do a spatial join to the larger grid.
+
+```{r wus_grid}
+# read grid sf
+wus_grid_sf <- st_read("../../meta_wildfire/data/shapefile/smoke_grid",
+                       layer="wus_grid2015-ko")
+# set projection
+st_crs(wus_grid_sf) <- wgs
+# clipping bounding box same as other grid
+study_bbox <- st_bbox(c(xmin=-105.3, xmax=-104.5, ymax=41, ymin = 38))
+# clip to bbox extent
+gwr_grid_clip <- bbox_clip(wus_grid_sf, study_bbox)
+
+ggplot(gwr_grid_clip) +
+  geom_sf(color = "red", fill = NA) +
+  geom_sf(data=study_grid, color = "blue", fill=NA) +
+  theme_minimal()
+```
+
+Extracting PM estimates from .nc file.
+
+```{r nc_connection}
+# open connection to netcdf in meta-wildfire repo
+nc_path <- paste0("../../meta_wildfire/data/smoke/2015-smoke_pm_wus.nc")
+smk_2015_nc <- nc_open(nc_path)
+# print summary
+smk_2015_nc
+```
+
+Extracting grid points (matrix) and setting as vectors. When using the as.vector function on matrix values from a netcdf, it will go row by row (left to right, then top to bottom).
+
+```{r extract_location_values}
+# extract longitude as a vector
+lon <- ncvar_get(smk_2015_nc, "glons")
+# extract latitude as a vector
+lat <- ncvar_get(smk_2015_nc, "glats")
+# extract date as a vector (format yyyymmdd)
+date <- ncvar_get(smk_2015_nc, "dates")
+
+# vector of lat and lon
+lon_vec <- as.vector(lon)
+lat_vec <- as.vector(lat)
+# id sequence
+id <- 1:20838
+
+# bind together and plot to see where grids are
+id_location <- as_data_frame(cbind(id, lon_vec, lat_vec))
+
+# 138 columns, 151 rows
+# recreating a matrix that matches values
+grid_id <- t(apply(matrix(20838:1, nrow=151, ncol=138, byrow = T),1,rev))
+# extracting values as a vector that matches grid values in netcdf
+cell_id <- as.vector(grid_id)
+
+# WRFGRID_ID matrix based on cell location
+wrf_id_mat <- apply(matrix(1:20838, nrow=151, ncol=138), 2, rev)
+# vector of WRFGRID_ID
+WRFGRID_ID <- as.vector(wrf_id_mat)
+
+# join WRFGRID_ID values to lat lon coordinates
+wrf_id_key <- as_data_frame(cbind(cell_id, WRFGRID_ID)) %>% 
+  rename(id = cell_id) %>% 
+  left_join(id_location, by = "id") %>% 
+  rename(lat = lat_vec, lon = lon_vec) %>% 
+  mutate(combine_id = paste(id, WRFGRID_ID, sep = ":"))
+
+# subset nc ids by WRFID grid
+study_area_id_key <- wrf_id_key %>% 
+  filter(WRFGRID_ID %in% gwr_grid_clip$WRFGRID_ID)
+```
+
+Extracting PM~2.5~ values for netcdf file. This is for the entire W. US, which is not super efficient, but it's probably faster to do this since I've already QCed this rather than figure out how to find the specific grids from scratch.
+```{r pm_vals}
+# extract krig_pm and background_pm from nc file ----
+gwr_pm <- ncvar_get(smk_2015_nc, "gwrPM")
+krig_pm <- ncvar_get(smk_2015_nc, "kPM")
+background_pm <- ncvar_get(smk_2015_nc, "gwr_background")
+
+# create cell x date matrices ----
+# apply function to extract pm values for each cell for each date as a vector
+krig_pm_mat <- apply(krig_pm, 3, as.vector)
+gwr_pm_mat <- apply(gwr_pm, 3, as.vector)
+# background has only one value
+background_pm_vec <- as.vector(background_pm) 
+
+# set values <0 to 0
+krig_pm_mat <- ifelse(krig_pm_mat < 0, 0, krig_pm_mat)
+gwr_pm_mat <- ifelse(gwr_pm_mat <0, 0, gwr_pm_mat)
+
+# create smoke estimates -----
+krig_pm_smk_mat <- krig_pm_mat - background_pm_vec
+gwr_pm_smk_mat <- gwr_pm_mat - background_pm_vec
+# set values lower than 0 to 0
+krig_pm_smk_mat <- ifelse(krig_pm_smk_mat < 0, 0, krig_pm_smk_mat)
+gwr_pm_smk_mat <- ifelse(gwr_pm_smk_mat < 0, 0, gwr_pm_smk_mat)
+
+# assign WRFGRID IDs as rownames
+# extract vector of arranged WRFGRID IDs that match cell IDs for rownames
+WRFGRID <- arrange(wrf_id_key, id)$WRFGRID_ID
+# extract dates for column names
+date_vec <- paste0("date", date)
+
+# create list of pm values
+pm_list <- list(krig_pm_mat, krig_pm_smk_mat, gwr_pm_mat, gwr_pm_smk_mat)
+# assign names to pm_list
+names(pm_list) <- c("krig", "krig_smk", "gwr", "gwr_smk")
+
+study_area_wrfid <- study_area_id_key$WRFGRID_ID
+# lapply row and column names and sort by WRFGRID Cell, then extract by 
+# wrf ids in study area
+pm_list <- lapply(pm_list, function(x){
+  colnames(x) <- date_vec
+  rownames(x) <- WRFGRID
+  x <- x[order(as.numeric(row.names(x))),]
+  x <- x[study_area_wrfid, ]
+})
+
+# subsetting PM GWR as a dataframe and preparing for distribution
+gwr_pm <- data.frame(pm_list[[3]]) %>% 
+  cbind(study_area_wrfid, .) %>% 
+  rename(WRFGRID_ID = study_area_wrfid) %>% 
+  gather(key = "date", value = "gwr_pm", -WRFGRID_ID) %>% 
+  mutate(date = as.Date(stringr::str_sub(date, start=5), 
+                            format = "%Y%m%d"))
+
+gwr_smk <- data.frame(pm_list[[4]]) %>% 
+  cbind(study_area_wrfid, .) %>% 
+  rename(WRFGRID_ID = study_area_wrfid) %>% 
+  gather(key = "date", value = "gwr_pm_smk", -WRFGRID_ID) %>% 
+  mutate(date = as.Date(stringr::str_sub(date, start=5), 
+                            format = "%Y%m%d")) %>% 
+  # join pm values
+  left_join(gwr_pm, by = c("WRFGRID_ID", "date")) %>% 
+  mutate(gwr_smk0 = ifelse(gwr_pm_smk > 0, 1, 0),
+         gwr_smk5 = ifelse(gwr_pm_smk > 5, 1, 0),
+         gwr_smk10 = ifelse(gwr_pm_smk > 10, 1, 0),
+         gwr_smk15 = ifelse(gwr_pm_smk > 15, 1, 0),
+         gwr_smk20 = ifelse(gwr_pm_smk > 20, 1, 0)) %>% 
+  gather(key = "smoke_cat", value = "smoke_indicator", 
+         -c(WRFGRID_ID, date, gwr_pm_smk, gwr_pm))  %>% 
+  mutate(smoke_indicator = as.factor(smoke_indicator),
+         smoke_cat = forcats::fct_relevel(smoke_cat, 
+            c("gwr_smk0", "gwr_smk5", "gwr_smk10", "gwr_smk15", "gwr_smk20")))
+```
+
+### PM~2.5~ Distributions by Smoke Cut Point
+Distributions of PM~2.5~ estimate by GWR by smoke indicators for 5 different smoke cutoff points. 
+```{r pm_smk_dist}
+dist_plot <- ggplot(gwr_smk, 
+  aes(x=gwr_pm, group=smoke_indicator, fill=smoke_indicator)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~smoke_cat) +
+  theme_minimal()
+
+dist_plot
+```
+For my binary smoke classifiers, I think the cutoffs at 0 and 5 are prone to exposure misclassification. Cutpoints 15 and 20 may be the most specific.
+
+### PM~2.5~ Summary Statistics 
+The variable smoke_cat is the binary cutoff, smoke_indicator indicates possible smoke where based on gwr_smk = (gwr_pm - background), n_obs is the number of observations for each smoke indicator for the grids in the study area, followed by minimum, maximum, median, and mean GWR PM~2.5~ values (not the gwr_smk estimates).
+```{r pm_sum_stat}
+pm_summary <- gwr_smk %>% 
+  group_by(smoke_cat, smoke_indicator) %>% 
+  summarise(n_obs = n(), min_pm = min(gwr_pm), max_pm = max(gwr_pm), 
+            med_pm = median(gwr_pm), mean_pm = mean(gwr_pm))
+  
+pm_summary
+```
+
+
