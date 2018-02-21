@@ -541,8 +541,9 @@ Starting by reading in Western US grid and limiting to same study extent as the 
 
 ```{r wus_grid}
 # read grid sf
-wus_grid_sf <- st_read("../../meta_wildfire/data/shapefile/smoke_grid",
-                       layer="wus_grid2015-ko")
+wus_grid_sf <- st_read(paste0("../../meta_wildfire/data/shapefile/",
+  "2015-wus_grid"), layer="wus_grid2015-ko")
+
 # set projection
 st_crs(wus_grid_sf) <- wgs
 # clipping bounding box same as other grid
@@ -679,7 +680,8 @@ gwr_smk <- data.frame(pm_list[[4]]) %>%
          -c(WRFGRID_ID, date, gwr_pm_smk, gwr_pm))  %>% 
   mutate(smoke_indicator = as.factor(smoke_indicator),
          smoke_cat = forcats::fct_relevel(smoke_cat, 
-            c("gwr_smk0", "gwr_smk5", "gwr_smk10", "gwr_smk15", "gwr_smk20")))
+            c("gwr_smk0", "gwr_smk5", "gwr_smk10", "gwr_smk15",
+              "gwr_smk20")))
 ```
 
 ### PM~2.5~ Distributions by Smoke Cut Point
