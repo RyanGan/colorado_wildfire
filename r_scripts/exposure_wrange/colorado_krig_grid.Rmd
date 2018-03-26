@@ -1,0 +1,71 @@
+---
+title: "Creating Krig Grid Shapefile for Colorado"
+author: "Ryan Gan"
+date: "3/26/2018"
+output: html_document
+---
+
+## Introduction
+
+This document contains code that creates a smaller shapefile of the krig grid cells that overlays the entire contiental United States to just the grids over the state of Colorado and that touch a WRFGRID-ID. This smaller shapefile will make it easier to assign Colorado PM~2.5~ estimats. 
+
+I will need the tidyverse and sf libraries.
+```{r libraries}
+library(tidyverse)
+library(sf)
+```
+
+Reading in the grid key that links Krig Grid GRID_ID to the WRF grid WRFGRID_ID 
+```{r grid_key}
+# read values
+grid_key <- read_csv("../../data/shapefiles/wrfgrid_key.csv", 
+                     col_types = cols(.default = "c")) %>% 
+  mutate_all(as.numeric)
+# viewing first lines of tibble
+head(grid_key)
+```
+
+Range of column/x cells. I need to add 1 to each value to get the right location in the array since the values start at 0.
+```{r output_x}
+# output unique cell locations for column/x
+colx <- unique(grid_key$COLX) + 1
+# range of column x
+range(colx)
+```
+
+Range of row/y cells. I need to add 1 to each value for hte same reason above.
+```{r output_y}
+# output unique cell lcoations for row/y
+rowy <- unique(grid_key$ROWY) + 1
+# range of row y
+range(rowy)
+```
+
+Read in larger US krig grid, subset to Colorado by cell ids in column x and row y.
+
+```{r new_colorado_shape}
+# define grid path
+grid_path <- paste0("../../../meta_wildfire/data/shapefile/1016-us_pm_grid/")
+
+# read western US grid and subset to the COLX and ROWY values in xy expanded grid
+co_grid_sf <- st_read(dsn = grid_path, layer = "1016-us_pm_grid") %>% 
+  mutate(col_x = COLX + 1, row_y = ROWY + 1) %>% 
+  filter(col_x %in% colx & row_y %in% rowy) %>% 
+  dplyr::select(-COLX, -ROWY, -AREA, -PERIMETER) %>% 
+  rename(COLX = col_x, ROWY = row_y)
+```
+
+Plotting to make sure it looks right.
+
+```{r plot}
+ggplot(co_grid_sf) +
+  geom_sf(fill =NA)
+```
+
+Writing shapefile.
+
+```{r write_sf, eval = F}
+# write colorado grid shape
+st_write(co_grid_sf, dsn = "../../data/shapefiles/co_krig_grid", 
+         layer = "co_krig_grid", driver = "ESRI Shapefile", delete_layer = T)
+```

@@ -1,0 +1,128 @@
+---
+title: "Regrid WRF Grid ID to US 15x15 km Grid"
+author: "Ryan Gan"
+date: "2018-03-23"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Introduction
+
+I have a 3x3 km resolution grid I think for the entire state of Colorado, where I also have an ID that can joined to health outcomes data. I have exposure estimates at a larger grid size of 15x15 km. I think the most straight-forward approach for this would be to convert each shapefiles to gridded rasters, then extract the ID values of the larger GRID IDs to the smaller WRFGRID points. I could then make a dataframe of WRGRID IDs and their corresponding GRID IDs.
+
+Load "sf" and "raster" spatial library.
+```{r library}
+library(sf)
+library(raster)
+```
+
+```{r read_wrfgrid_shape}
+wrfgrid_sf <- st_read(dsn = "../../data/shapefiles/wrf_grid", 
+                      layer = "wrf_grid")
+```
+
+```{r read_grid_shape}
+us_grid_sf <- st_read(dsn = "../../data/shapefiles/1016-us_pm_grid",
+                      layer = "1016-us_pm_grid")
+```
+
+
+Extracting WRFGRID centroid latitude and longitude coordinates.
+
+```{r wrf_coords}
+# extract wrfgrid id vector
+wrfgrid_id <- wrfgrid_sf$WRFGRID_ID
+# extract centroid points from wrfgrid sf
+coords <- do.call(rbind, st_geometry(st_centroid(wrfgrid_sf)))
+colnames(coords) <- c("lon", "lat")
+# bind both together in spatial dataframe
+wrf_coords <- data.frame(cbind(wrfgrid_id, coords))
+head(wrf_coords)
+```
+
+Subsetting US grid to grid cells in Colorado that overlap the WRFGRID shapefile.
+
+```{r co_grid_subset}
+# subset to colorado
+co_grid <- us_grid_sf[wrfgrid_sf, ]
+```
+
+Plotting Colorado grid and WRFGRID coordinate points.
+
+```{r plot}
+# plot
+ggplot(co_grid) +
+  geom_sf(fill = NA) +
+  geom_point(data=wrf_coords, aes(x=lon, y=lat), 
+             color = "blue", size = 0.1, alpha =0.3) +
+  theme_minimal()
+```
+
+Joining polygons to grid. First step is to create a sf object of the st_centroid. This is similar to the step above, but I retain the geometry for each WRFGRID ID.
+
+```{r wrf_coord_sf}
+wrf_coord_sf <- st_centroid(wrfgrid_sf) %>% 
+  dplyr::select(WRFGRID_ID)
+```
+
+I can now use the st_join function to join the GRID IDS of the Colorado grid with the WRFGRID IDs.
+```{r st_join}
+grid_id_key <- st_join(co_grid, wrf_coord_sf) %>% 
+  filter(!is.na(WRFGRID_ID))
+```
+
+There are some missing WRFGRID_IDs for some GRIDS, but those grids look like edge grids.
+
+I'm going to read in Colorado county shapefiles and plot the grids that intersect Denver county. subset the first 10 WRFGRID IDs and plot.
+
+```{r read_denver_county}
+# read denver county
+denver_sf <- st_read(dsn = "../../data/shapefiles/colorado_county",
+                     layer = "colorado_county") %>% 
+  filter(NAME == "Denver")
+```
+
+Finding the grids that interesect Denver county.
+
+```{r subset_check}
+# assign crs from denver county to the grid sf
+st_crs(grid_id_key) <- st_crs(denver_sf)
+# subset grids that touch denver county
+grid_check <- grid_id_key[denver_sf,]
+# wrf id check
+wrf_check <- wrfgrid_sf %>% 
+  filter(WRFGRID_ID %in% grid_check$WRFGRID_ID)
+# assign crs
+st_crs(wrf_check) <- st_crs(denver_sf)
+# wrf_coords points
+wrf_check_coords <- wrf_coord_sf %>% 
+  filter(wrfgrid_id %in% wrf_check$WRFGRID_ID)
+# assign crs
+st_crs(wrf_check_coords) <- st_crs(denver_sf)
+```
+
+Plotting the 15 km^2^ grid and 3 km^2^ WRF grid and centroids over Denver County.
+
+```{r plot_check}
+ggplot(denver_sf) +
+  geom_sf(fill = NA, color = "black") +
+  geom_sf(data = grid_check, fill = NA, color = "blue") +
+  geom_sf(data = wrf_check, fill = NA, color = "red") +
+  geom_sf(data = wrf_check_coords, fill = NA, color = "red", size = 0.1) +  
+  theme_minimal()
+```
+
+Looks like this worked. I'm going to save the key with WRFGRID coordinates to make sure I assign grid PM~2.5~ values correctly to WRFGRID IDs.
+
+```{r save_wrf_ids, eval=F}
+# join with coords
+gridid_key_coords <- grid_id_key %>% 
+  left_join(wrf_coords, by = c("WRFGRID_ID" = "wrfgrid_id")) %>% 
+  dplyr::select(GRID_ID, WRFGRID_ID, lon, lat, COLX, ROWY)
+# remove geometry
+st_geometry(gridid_key_coords) <- NULL
+# write csv
+write_csv(gridid_key_coords, path = "../../data/shapefiles/wrfgrid_key.csv")
+```
+
