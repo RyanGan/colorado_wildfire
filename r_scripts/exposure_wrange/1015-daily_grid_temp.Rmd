@@ -1,0 +1,130 @@
+---
+title: "Extracting Grid PM~2.5~ Values for Colorado"
+author: "Ryan Gan"
+date: "2018-03-23"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Introduction
+
+I have a 3x3 km resolution grid I think for the entire state of Colorado, where I also have an ID that can joined to health outcomes data. I have exposure estimates at a larger grid size of 15x15 km. I need to regrid the NARR temperature estimates to match the Colorado grids.
+
+I will need tidyverse, ncdf4, and raster.
+```{r libraries}
+library(tidyverse)
+library(ncdf4)
+library(raster)
+```
+
+## PM~2.5~ Grid Coordinates
+
+Opening connection to 2015 PM~2.5~ nc file.
+
+```{r pm_nc_open}
+# open connection pm grid
+pm_nc_path <- paste0("../../../meta_wildfire/data/smoke/",
+  "krigedPM25_06-15/krigedPM25_2015.nc")
+pm_nc <- nc_open(pm_nc_path)
+```
+
+Reading in Colorado grid sf file to get out sorted GRID_ID values to join with PM~2.5~ grid coordinates.
+
+```{r colorado_grid_id}
+# grid id from sf file
+# define grid path
+grid_path <- paste0("../../data/shapefiles/co_krig_grid/")
+# read colorado grid
+co_grid_sf <- sf::st_read(dsn = grid_path, layer = "co_krig_grid") %>% 
+  arrange(ROWY, COLX)
+# output grid id
+GRID_ID <- co_grid_sf$GRID_ID
+```
+
+Extracting the Colorado grid coordinates to regrid temperature to and combine with GRID ID vector in a dataframe.
+
+```{r colorado_grid_loc}
+# extract latitude and longitude values
+lat <- as.vector(ncvar_get(nc = pm_nc, varid = "lat")[104:147, 81:112])
+lon <- as.vector(ncvar_get(nc = pm_nc, varid = "lon")[104:147, 81:112])
+# bind with grid id and create dataframe
+grid_coords <- data.frame(GRID_ID, lon, lat)
+```
+
+## Temperature Regrid
+
+Opening up connection to the 2015 air temp at 2 meters file to get the coordinates.
+
+```{r open_temp_nc}
+# open temp nc
+temp_nc <- nc_open(paste0("../../../meta_wildfire/data/smoke/",
+  "air_temp_2m/air.2m.2015.nc"))
+temp_nc
+```
+
+Extracting latitude and longitude coordinates for temperature grid.
+
+```{r temp_coords}
+# extract temp lat lon
+t_lat <- as.vector(ncvar_get(nc = temp_nc, var = "lat"))
+t_lon <- as.vector(ncvar_get(nc = temp_nc, var = "lon"))
+# temp_coordinates as matrix
+temp_coords <- as.matrix(cbind(t_lon, t_lat), ncol =2)
+# set names to lat and lon
+colnames(temp_coords) <- c("lon", "lat")
+# view first obs of temp coordinates
+head(temp_coords)
+```
+
+Now that I have the temperature coordinates, I'm going to extract the spatial extent of the coordinates and print the extent object boundaries.
+
+```{r temp_extent}
+# create extent object
+e <- extent(temp_coords[,1:2])
+# print extent object
+e
+```
+
+I'm going to create an empty raster that matches the number of columns and rows in the temperature grid (349 columns and 277 rows).
+
+```{r new_temp_raster}
+# create new raster
+r <- raster(e, nrow=277, ncol=349)
+```
+
+### Checking January 1st 2015 Temperature for Colorado
+
+I'm going to extract the temperature values on January 1st 2015 to the Colorado grids to make sure it looks right.
+
+```{r temp_vector}
+# extract vector of temp
+t_temp <- as.vector(ncvar_get(temp_nc, varid = "air")[,,1]) 
+```
+
+Rasterizing vector of January 1st temp to the new raster. Using mean for multiple values that fall in to the same grid cells for the new grid.
+
+```{r rasterize}
+# rasterize temperature values to new grid
+r_temp <- rasterize(temp_coords[,1:2], r, t_temp, fun=mean)
+# extract values to pm points
+temp_k_regrid <- extract(r_temp, grid_coords[,2:3])
+```
+
+Plotting temperature in Farenheit for Colorado on January 1st.
+```{r plot}
+# convert to farenheit
+temp_f <- (temp_k_regrid *(9/5) - 459.67)
+
+# plot 
+ggplot(data= grid_coords, aes(x=lon, y=lat, color = temp_f)) +
+  geom_point() +
+  ggtitle("Temperature (F) on Jan 1 2015 for Colorado") +
+  theme_minimal()
+```
+
+Looks good. I'm going to itterate through each temperature nc file to regrid to the Colorado grid. However, I did some quick benchmarks and this script would take nearly 42 minutes to run for one year because of the rasterize function. I'm going to write this in a Rscript to run in parallel on the ozone server. I am going to save the krig grid coordinates for Colorado and run this script from the meta_wildfire repository though to make this easier. 
+```{r save_coords}
+write_csv(grid_coords, "../../data/smoke/colo_krig_grid_coords.csv")
+```
+
