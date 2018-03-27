@@ -1,5 +1,5 @@
 ---
-title: "Assign Grid PM~2.5~ Values to WRFGRID cells for Colorado"
+title: "Extracting Grid PM~2.5~ Values for Colorado"
 author: "Ryan Gan"
 date: "2018-03-23"
 output: html_notebook
