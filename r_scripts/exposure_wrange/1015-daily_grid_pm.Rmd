@@ -1,0 +1,241 @@
+---
+title: "Assign Grid PM~2.5~ Values to WRFGRID cells for Colorado"
+author: "Ryan Gan"
+date: "2018-03-23"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Introduction
+
+I have a 3x3 km resolution grid I think for the entire state of Colorado, where I also have an ID that can joined to health outcomes data. I have exposure estimates at a larger grid size of 15x15 km. I think the most straight-forward approach for this would be to convert each shapefiles to gridded rasters, then extract the ID values of the larger GRID IDs to the smaller WRFGRID points. I created a csv file that contains the WRFGRID IDs in the larger GRID IDs that I will use to assign extracted grid values from the netcdf files Kate provided to WRFGRID IDs.
+
+I think I need tidyverse and ncdf4.
+```{r libraries}
+library(tidyverse)
+library(ncdf4)
+library(sf)
+```
+
+### NetCDF PM~2.5~ Values
+
+Before I read in PM~2.5~ values from the netcdf files, I'm going to load the WRFGRID to GRID key I created in the script "regrid_wrf.Rmd". I read all variables as characters and then converted to numeric as I was getting some parsing warning messages that I think are fine.
+
+```{r grid_key}
+# read values
+grid_key <- read_csv("../../data/shapefiles/wrfgrid_key.csv", 
+                     col_types = cols(.default = "c")) %>% 
+  mutate_all(as.numeric)
+# viewing first lines of tibble
+head(grid_key)
+```
+
+I'm going to start by defining path to nc files in the meta_wildfire repo and listing the files. I have PM~2.5~ values for every year for the entire US from 2006 to 2015. I only need the grid values for Colorado from 2010 to 2015, as those are the years I have data. 
+
+```{r nc_path}
+# define file path
+nc_file_path <- paste0("../../../meta_wildfire/data/smoke/krigedPM25_06-15/")
+# create vector of list file names
+nc_names <- list.files(nc_file_path)
+# printing names in vector
+nc_names
+```
+
+I'm going to start by testing out how to extract only values I need for 2010. Opening connection to nc file and printing nc summary.
+
+```{r open_nc_connection}
+# open nc connection to 2010 nc file
+pm_2010_nc <- nc_open(paste0(nc_file_path, "krigedPM25_2010.nc"))
+# print nc summary
+pm_2010_nc
+```
+
+It looks like Kate saved the row and columns that I need to output as variables. I'm going to see if I can use these.
+
+Range of column/x cells. I need to add 1 to each value to get the right location in the array since the values start at 0.
+```{r output_x}
+# output unique cell locations for column/x
+colx <- unique(grid_key$COLX) + 1
+# range of column x
+range(colx)
+```
+
+Range of row/y cells. I need to add 1 to each value for hte same reason above.
+```{r output_y}
+# output unique cell lcoations for row/y
+rowy <- unique(grid_key$ROWY) + 1
+# range of row y
+range(rowy)
+```
+
+### Checking Point PM~2.5~ 
+
+Attempting to output the PM~2.5~ values for January 1st, 2010 for the specific grid cells over Colorado. 
+
+```{r pm_jan1}
+# colorado pm values
+pm <- ncvar_get(pm_2010_nc, varid = "PM25")[104:147, 81:112, 1]
+# lat locations
+lat <- ncvar_get(pm_2010_nc, varid = "lat")[104:147, 81:112]
+# lon locations
+lon <- ncvar_get(pm_2010_nc, varid = "lon")[104:147, 81:112]
+# bind vectors together
+pm_jan1_df <- data.frame(as.vector(pm), as.vector(lat), as.vector(lon))
+colnames(pm_jan1_df) <- c("pm", "lat", "lon")
+```
+
+Plotting PM~2.5~ values over Colorado shapefile from maps package. Projection may be slightly off since the shapefile likely has a WGS84 or NAD83 projection and the lat/lon coordinates of the PM~2.5~ values doe not.
+
+```{r colorado_plot}
+# read colorado shape
+colorado <- map_data("state", region = "colorado")
+
+# plot
+plot <- ggplot(data = pm_jan1_df, aes(x = lon, y = lat, color = pm)) +
+  geom_point() +
+  geom_polygon(data=colorado, aes(x = long, y = lat, group = group), fill = NA, 
+               color = "red") + 
+  ggtitle("Grid location PM2.5 values on Janurary 1st, 2010 for Colorado") +
+  theme_minimal()
+
+plot
+```
+
+I can't join by latitude/longitude, so I'm seeing if I can expand the colx and rowy locations to match the locations provided in the shapefile by Bonne.
+
+### Checking PM~2.5~ Assignment to GRID ID
+
+I believe the GRID_IDs should start in the lower-left and go left to right, bottom to top. Joining numbered sequences to the PM coordinates and plotting locations of text to see. 
+
+```{r point_plot}
+# finding out where cell ids are 
+# pretty sure they will start in the lower left corner going right, then up rows
+pm_jan1_df$cell_id <- 1:1408
+# plot
+ggplot(pm_jan1_df, aes(x=lon, y=lat)) +
+  geom_text(aes(label = cell_id), size = 1.5) +
+  theme_minimal()
+```
+
+It goes left to right, bottom to top. So I will need to make sure the vector of GRID_IDs matches the order of the vector of daily PM values.
+
+```{r new_colorado_shape}
+# define grid path
+grid_path <- paste0("../../data/shapefiles/co_krig_grid/")
+
+# read western US grid and subset to the COLX and ROWY values in xy expanded grid
+co_grid_sf <- st_read(dsn = grid_path, layer = "co_krig_grid") %>% 
+  arrange(ROWY, COLX)
+```
+
+Sorting column x and row y to make sure it matches the vector of cell numbers of the Colorado grid values. Extract vector of the 1408 GRID IDs to assign PM~2.5~ to. Plotting first 50 GRID_IDs of the arragnged shapefile to make sure it looks correct.
+
+```{r grid_plot}
+# checking grid
+grid_check <- st_centroid(co_grid_sf) %>% slice(1:50)
+# plot
+ggplot(grid_check) +
+  geom_sf() +
+  xlim(-110, -101) +
+  ylim(36, 41.2) +
+  theme_minimal()
+```
+
+This arranged/sorted simple features shapefile should be correct for when I extract PM~2.5~ values.
+
+Before moving on, I want to check that the values for the assigned grid ids look correct.
+```{r checking_jan1_sf}
+# attempt to extract daily estimates for january for colorado from nc file
+pm_jan1_vec <- as.vector(ncvar_get(pm_2010_nc, varid = "PM25")[104:147, 81:112, 1])
+# check to see if equal with pm_jan1_df
+identical(pm_jan1_vec, pm_jan1_df$pm)
+```
+
+Joining grid id, creating a dataframe, joining to the Colorado grid simple features, and plotting.
+
+```{r sf_plot_check}
+# output sorted grid id
+grid_id <- co_grid_sf$GRID_ID
+# create dataframe 2
+pm_jan1_sf <- data.frame(grid_id, pm_jan1_vec) %>% 
+  rename(GRID_ID = grid_id, pm = pm_jan1_vec) %>% 
+  left_join(co_grid_sf, by = "GRID_ID")
+# plot
+ggplot(pm_jan1_sf) +
+  geom_sf(aes(fill = pm), color = NA) +
+  theme_minimal()
+```
+
+This plot looks similar to the point plot where there is lower PM~2.5~ in the south-west corner. This looks good. I can extract and create time-series dataframes of values. I think I can run this on a local machine without too much trouble. Giving it a go.
+
+## GRID PM~2.5~ Values 2010 to 2015
+
+I only need values from 2010 to 2015 to match my outcomes data, so I'm going to reduce the list to these years.
+
+```{r pm_list_study}
+# reducing names list to 2010 to 2015
+nc_list <- nc_names[5:10]
+# checking list names
+nc_list
+```
+
+Itterating to extract PM~2.5~, seasonal background PM~2.5~, and HMS smoke for each grid cell in Colorado and writing as seperate dataframes in a folder.
+
+```{r colorado_grid_pm_dfs, eval=F}
+# output sorted grid id to bind in apply function
+GRID_ID <- co_grid_sf$GRID_ID
+
+start <- Sys.time()
+# apply over vector of nc names
+sapply(nc_list, function(meow){
+  # open nc connection
+  pm_nc <- nc_open(paste0(nc_file_path, meow))
+  # output 3d arrays from .nc files for colorado grids and convert to 2d matrices 
+  pm_mat <- apply(ncvar_get(pm_nc, varid = "PM25")[104:147, 81:112, ],3, as.vector)
+  bg_pm_mat <- apply(ncvar_get(pm_nc, varid = "Background PM25")[104:147, 81:112, ], 3, as.vector)
+  hms_mat <- apply(ncvar_get(pm_nc, varid = "HMS Smoke")[104:147, 81:112, ], 3, as.vector)
+
+  # extract year from name of list
+  year <- substring(meow, 12, 15)
+
+  # kates date in the .nc file is just one value; i'm just going to create
+  # my own date vector that will account for leap year too
+  date <- paste0("d", gsub("-", "", 
+    seq.Date(from = as.Date(paste0(year, "-01-01")), 
+      to = as.Date(paste0(year, "-12-31")), by = "day"))) # end date seq
+
+  # bind in to a list to itterate through population weighting function
+  pm_list <- list(pm_mat, bg_pm_mat, hms_mat)
+  # assign names to list elements
+  names(pm_list) <- c("krig_pm", "background_pm", "hms_smk")
+  
+  # lapply row and column names and sort by GRID_ID Cell
+  pm_list <- lapply(pm_list, function(x){
+    # assign date to column name
+    colnames(x) <- date
+    # assign grid_id to rownames
+    rownames(x) <- GRID_ID
+    # column-bind GRID_ID to start of matrix
+    x <- cbind(GRID_ID, x)
+    x <- x[order(as.numeric(row.names(x))),]
+    df <- data.frame(x)
+  }) # end function applying name
+
+  lapply(1:length(pm_list), function(x){
+  # function to write elements in list to folder
+      # write_name
+    write_name <- paste0("../../data/smoke/1016-co_krig_grid_pm/",
+          year, "-co_krig_grid_", names(pm_list[x]),".csv")
+    # save csv file
+    write_csv(pm_list[[x]], write_name)
+  }) # end function writing file
+
+}) # end sapply
+
+stop <- Sys.time()
+runtime <- stop - start
+runtime
+```
+
+Takes about 25 seconds to do this. I set evaluation of this code chunk to false so I don't perform this step again when I knit.
