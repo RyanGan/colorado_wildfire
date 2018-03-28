@@ -40,7 +40,7 @@ temp_path <- paste0("./data/smoke/air_temp_2m/")
 # create list of temp files
 temp_nc_files<- list.files(temp_path)
 # print temp files
-print(temp_list)
+print(temp_nc_files)
 
 # set up cluster of 6 cores to parallelize across each .nc file 
 cl <- makeCluster(6)
@@ -50,11 +50,12 @@ clusterCall(cl, function() c(library(tidyverse), library(ncdf4),
                              library(raster)))
 
 # export global sf objects and empty tibble to each core
-clusterExport(cl, c("temp_nc_files", "r", "temp_coords", "grid_coords"), 
+clusterExport(cl, c("temp_nc_files", "r", "temp_coords", "grid_coords", 
+                    "temp_path"), 
               envir = .GlobalEnv)
 
 # parallel sapply nc read and write function over list of .nc files
-parSapply(cl, temp_list, function(meow){
+parSapply(cl, temp_nc_files, function(meow){
   
   # open nc connection
   temp_nc <- nc_open(paste0(temp_path, meow))
@@ -80,18 +81,21 @@ parSapply(cl, temp_list, function(meow){
   temp_df <- data.frame(co_temp_mat)
   # assign column names of dates
   colnames(temp_df) <- date
+  # output grid ids
+  GRID_ID <- grid_coords$GRID_ID
   # bind in grid_id column
   temp_df <- cbind(GRID_ID, temp_df)
+  
   
   # print first obs of temp_df
   print(temp_df[1:5, 1:5])
   
   # write name 
-  write_name <- paste0("./data/smoke/air_temp_2m/co_air_temp/",
+  write_name <- paste0("./data/smoke/co_air_temp/",
                        year,"-co_grid_temp.csv")
   
   # write final dataset to air temp file
-  write_csv(final_df, path = write_name)
+  write_csv(temp_df, path = write_name)
   
   # close nc connection
   nc_close(temp_nc)
@@ -101,5 +105,5 @@ parSapply(cl, temp_list, function(meow){
 stopCluster(cl)
 
 # check to see if files were created
-list.files("./data/smoke/air_temp_2m/county_air_temp/", pattern = ".csv")
+list.files("./data/smoke/co_air_temp/", pattern = ".csv")
 
