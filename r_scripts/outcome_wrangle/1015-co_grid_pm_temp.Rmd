@@ -1,0 +1,121 @@
+---
+title: "Creating Colorado daily grid PM~2.5~ and temperature 2010-2015"
+author: "Ryan Gan"
+date: '2018-03-22'
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+---
+
+## Introduction
+
+This R markdown file combines daily estimates of the kriged PM~2.5~, seasonal background PM~2.5~, HMS, and temperature from each year and creates a time series data frame by GRID ID. I am considering putting this in a SQLite database along with zip-level and county-level values to make it easier to join with outcomes.
+
+```{r library}
+library(tidyverse)
+```
+
+## PM~2.5~ 
+
+Defining file path where files for PM~2.5~, background, and HMS data are stored.
+
+```{r pm_path}
+# file path
+pm_file_path <- paste0("../../data/smoke/1016-co_krig_grid_pm/")
+```
+
+Importing PM~2.5~ estimated using ordinary kriging. I'm going to need to provide a different name to distinguish these values from county and zip values. I'm going call it pm25_grid.
+
+```{r krig_pm25}
+# list files
+pm25_grid <- list.files(pm_file_path, pattern = "krig_pm") %>% 
+  # read in each csv file using map
+  map( ~ read_csv(paste0(pm_file_path, .),
+                  col_types = cols(.default = "d", GRID_ID = "c"))) %>% 
+  # transform data wide to long
+  map_dfr( ~ gather(., date, pm_krig, -GRID_ID) %>% 
+             mutate(date = as.Date(str_sub(date, start=2), format = "%Y%m%d"),
+                    pm25_grid = as.numeric(pm_krig)) %>% 
+             select(-pm_krig))
+# glimpse rows
+glimpse(pm25_grid)
+```
+
+## Seasonal Background PM~2.5~
+
+Importing seasonal background PM~2.5~. I'm going to label this seasonal back ground PM~2.5~ for the grid as sbg_pm_grid.
+
+```{r backround_pm25}
+# list files
+bg_pm25_grid <- list.files(pm_file_path, pattern = "background_pm") %>% 
+  # read in each csv file using map
+  map( ~ read_csv(paste0(pm_file_path, .),
+                  col_types = cols(.default = "d", GRID_ID = "c"))) %>% 
+  # transform data wide to long
+  map_dfr( ~ gather(., date, bg_pm, -GRID_ID) %>% 
+             mutate(date = as.Date(str_sub(date, start=2), format = "%Y%m%d")) %>% 
+             rename(sbg_pm_grid = bg_pm))
+# glimpse rows
+glimpse(bg_pm25_grid)
+```
+
+## HMS Smoke
+
+Hazard mapping system smoke in atmospheric column. Binary variable where 1 is yes and 0 is no. I'm going to lable this as hms_grid.
+
+```{r hms}
+# list files
+hms_grid <- list.files(pm_file_path, pattern = "hms") %>% 
+  # read in each csv file using map
+  map( ~ read_csv(paste0(pm_file_path, .),
+                  col_types = cols(.default = "d", GRID_ID = "c"))) %>% 
+  # transform data wide to long
+  map_dfr( ~ gather(., date, hms, -GRID_ID) %>% 
+             mutate(date = as.Date(str_sub(date, start=2), format = "%Y%m%d")) %>% 
+             rename(hms_grid = hms))
+# glimpse rows
+glimpse(hms_grid)
+```
+
+## Temperature
+
+Reading in temperature in kelvin and converting to farenheit.
+
+```{r temp}
+# temp path
+temp_path <- paste0("../../data/smoke/co_air_temp/")
+# list files
+temp_grid <- list.files(temp_path) %>% 
+  # read in each csv file using map
+  map( ~ read_csv(paste0(temp_path, .),
+                  col_types = cols(.default = "d", GRID_ID = "c"))) %>% 
+  # transform data wide to long
+  map_dfr( ~ gather(., date, temp_k, -GRID_ID) %>% 
+             mutate(date = as.Date(str_sub(date, start=2), format = "%Y%m%d"),
+                    temp_f_grid = round(temp_k * (9/5) - 459.67, 2)) %>% 
+             select(-temp_k))
+# glimpse rows
+glimpse(temp_grid)
+```
+
+## Composite Data
+
+Binding all data frames together.
+
+```{r comp_data}
+# create list of all dataframes
+co_grid_env_ts <- list(pm25_grid, bg_pm25_grid, hms_grid, temp_grid) %>% 
+  # bind list together
+  reduce(function(df1, df2) left_join(df1, df2, by = c("GRID_ID", "date")))
+# glimpse df
+glimpse(co_grid_env_ts)
+```
+
+Writting file. Option of eval = F so I don't keep running it if I knit.
+
+```{r grid_write, eval = F}
+write_csv(co_grid_env_ts, "../../data/smoke/1015-grid_pm.csv")
+```
+
