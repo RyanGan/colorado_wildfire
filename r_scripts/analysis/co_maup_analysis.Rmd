@@ -62,23 +62,33 @@ grid_pm <- read_csv("../../data/smoke/1015-grid_pm.csv", col_types = "cDdddd") %
          # and difference between estimate and seasonal background to be >0
          # and to be within the month of April to Octoboer
          smk0_hms_g = ifelse(pm_diff_grid > 0 & month %in% c(4:10) & 
-                               hms == 1, 1, 0),
-         smk5_hms_g = ifelse(pm_diff > 5 & month %in% c(4:10) & hms > 0.1, 1, 0),
-         smk10_hms_g = ifelse(pm_diff > 10 & month %in% c(4:10) & hms > 0.1, 1, 0),
-         smk15_hms_g = ifelse(pm_diff > 15 & month %in% c(4:10) & hms > 0.1, 1, 0),
+                               hms_grid == 1, 1, 0),
+         smk5_hms_g = ifelse(pm_diff_grid > 5 & month %in% c(4:10) & 
+                               hms_grid == 1, 1, 0),
+         smk10_hms_g = ifelse(pm_diff_grid > 10 & month %in% c(4:10) & 
+                                hms_grid ==  1, 1, 0),
+         smk15_hms_g = ifelse(pm_diff_grid > 15 & month %in% c(4:10) & 
+                                hms_grid ==  1, 1, 0),
          # transforming pm kriged estimates to a 10 unit increase in pm
-         pm = pm_krig/10) %>% 
+         pm25_g_10u = pm25_grid/10) %>% 
   # sorting by fips and date to estimate lag for each county by date
-  arrange(fips, date) %>% 
+  arrange(GRID_ID, date) %>% 
   # group by fips 
-  group_by(fips) %>%
+  group_by(GRID_ID) %>%
   # apply funlag to create lagged estimates
-  mutate(., !!!funlag(pm,6), !!!funlag(smoke0_hms,6), !!!funlag(smoke5_hms,6),
-         !!!funlag(smoke10_hms,6), !!!funlag(smoke15_hms,6), 
-         !!!funlag(temp_f, 6))
-# head of first pm values
-head(grid_pm)
+  mutate(., !!!funlag(pm25_g_10u,6), 
+         !!!funlag(smk0_hms_g,6), !!!funlag(smk5_hms_g,6),
+         !!!funlag(smk10_hms_g,6), !!!funlag(smk15_hms_g,6), 
+         !!!funlag(temp_f_grid, 6))
 ```
+
+### Zip Exposure
+
+Spot for zip exposure when Jingyang finishes.
+
+### County Exposure
+
+Import county exposure values.
 
 ```{r import_county_pm}
 county_pm <- read_csv(paste0("../../../meta_wildfire/data/smoke/",
@@ -86,14 +96,110 @@ county_pm <- read_csv(paste0("../../../meta_wildfire/data/smoke/",
   # limiting to colorado counties only by reading 1st 2 digs of 5-dig fips code
   filter(str_sub(fips,start=1,end=2) %in% c("08")) %>% 
   rename(pm25_c = pm_krig, sbg_pm_c = bg_pm, pm_diff_c = pm_smk, hms_c = hms,
-         temp_f_c = temp_f, aqi_c = aqi, aqi_cat_c = aqi_cat)
-
-head(county_pm)
+         temp_f_c = temp_f, aqi_c = aqi, aqi_cat_c = aqi_cat) %>% 
+  mutate(pm_diff_c = pm25_c - sbg_pm_c,
+         month = as.factor(lubridate::month(date)), # extract month as factor
+         year = as.factor(lubridate::year(date)), # extract year as factor
+         season = as.factor(case_when(month %in% c(12, 1, 2) ~ "winter",
+                                      month %in% c(3:5) ~ "spring",
+                                      month %in% c(6:8) ~ "summer",
+                                      month %in% c(9:11)~ "fall")),
+         # creating binary smoke to hms to be equal to 1 
+         # and difference between estimate and seasonal background to be >0
+         # and to be within the month of April to Octoboer
+         smk0_hms_c = ifelse(pm_diff_c > 0 & month %in% c(4:10) & 
+                               hms_c == 1, 1, 0),
+         smk5_hms_c = ifelse(pm_diff_c > 5 & month %in% c(4:10) & 
+                               hms_c == 1, 1, 0),
+         smk10_hms_c = ifelse(pm_diff_c > 10 & month %in% c(4:10) & 
+                                hms_c ==  1, 1, 0),
+         smk15_hms_c = ifelse(pm_diff_c > 15 & month %in% c(4:10) & 
+                                hms_c ==  1, 1, 0),
+         # transforming pm kriged estimates to a 10 unit increase in pm
+         pm25_c_10u = pm25_c/10) %>% 
+  # sorting by fips and date to estimate lag for each county by date
+  arrange(fips, date) %>% 
+  # group by fips 
+  group_by(fips) %>%
+  # apply funlag to create lagged estimates
+  mutate(., !!!funlag(pm25_c_10u,6), 
+         !!!funlag(smk0_hms_c,6), !!!funlag(smk5_hms_c,6),
+         !!!funlag(smk10_hms_c,6), !!!funlag(smk15_hms_c,6), 
+         !!!funlag(temp_f_c, 6)) %>% 
+  select(-c(year, month, season, smoke0, smoke5, smoke10, smoke15))
+glimpse(county_pm)
 ```
 
+## Outcomes Data Frames
 
-Import case-cross list
-```{r}
+### Morbidity
 
+### Mortality
+
+Import case-cross list and limit to just all respiratory and cvd.
+
+```{r cvd_resp_deaths}
+# load casecross  mortality list
+load("../../data/health/co_mortality_cc_list.RData") 
+# load icd10 outcome list
+load("../../data/health/icd10_outcome.RData")
 ```
 
+```{r join_pm_data}
+# extract a vector of outcome names from the icd10 outcomes list 
+outcomes <- names(icd10_outcomes)
+
+# fips front range
+front_range_fips <- paste0("08", 
+  c("001", "005", "013", "014", "031", "035", "041", "059", "069", "101", "123"))
+
+# load grid id key
+grid_key <- read_csv("../../data/shapefiles/wrfgrid_key.csv", 
+                     col_types = cols(.default = "d", GRID_ID = "c", 
+                                      WRFGRID_ID = "c")) %>% 
+  select(GRID_ID, WRFGRID_ID)
+
+# assign outcome names to each dataframe in list
+co_cc_list <- casecross_list %>% 
+  # for some variables in the casecross dfs, I need to convert to character, then
+  # desired format to make sure it's right
+  map(~ mutate(., outcome = as.numeric(as.character(outcome)),
+               date = as.Date(as.character(date_of_death)),
+               month = as.factor(lubridate::month(date)),
+               WRFGRID_ID = as.character(wrfgrid_id)) %>%
+      # filter out 2016; I don't have pm data yet
+      filter(date <= "2015-12-30") %>% 
+      filter(month %in% 4:10) %>% 
+      # filter to front range
+      filter(fips %in% front_range_fips) %>% 
+      # remove vars to prevent duplicates
+      select(-c(wrfgrid_id, month)) %>% 
+      left_join(grid_key, by = "WRFGRID_ID") %>% 
+      left_join(grid_pm, by = c("GRID_ID", "date")) %>% 
+      left_join(county_pm, by = c("fips", "date"))) %>% 
+  # add outcome name to each dataframe
+  map2(.x = ., .y = outcomes, ~mutate(.x, out_name = .y))
+
+# remove casecross_list to save space
+rm(casecross_list)
+```
+
+## Same-Day Associations 
+
+Evaluating a 10 ug/m^3^ increase in county-level population-weighted PM~2.5~ and risk for mortality for certain cardiopulmonary underlying causes of deaths. Again, I use a variant of purrr map function, map_dfr to take each dataframe in the list, and run a conditional logistic regression between the outcome of interest and PM~2.5~, adusting for temperature. I output the odds ratio and 95% confidence intervals as a dataframe. You could also use R's apply type functions as well, which I'll do if I want to run multiple models in parallel to save time.
+
+```{r same_day_pm}
+# same-day association with pm and mortality during wildfire season
+pm_results <- co_cc_list %>%
+  map_dfr(. , function(df){
+    mod <- clogit(outcome ~ pm25_g_10u + temp_f_grid + strata(id), data = df)
+    est <- broom::tidy(mod) %>% filter(term == "pm25_g_10u") %>% 
+      select(estimate, std.error, conf.low, conf.high) %>% 
+      rename(se = std.error, lower95 = conf.low, upper95 = conf.high) %>% 
+      mutate_at(vars(estimate, lower95, upper95), exp)
+    }) %>% # end map
+  cbind(outcomes, .)
+broom::tidy(mod)
+# print results
+print(pm_results)
+```
