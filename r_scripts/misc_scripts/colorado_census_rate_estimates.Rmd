@@ -100,6 +100,7 @@ census_population <- census_data %>%
   mutate(GEOID = stringr::str_sub(GEOID, start = 8L)) %>% 
   rename(total_pop = B01001e1)
 ```
+
 ## Colorado trends
 
 Evaluating state-wide trend in cardiopulmonary ED/urgent care hospital admissions. I will eventually limit to ED visits, but I want to show something weird. Creating a time-series for the entire state and calculating rates per 100,000 persons for cardiopulmonary, CVD, and respiratory ED or urgent care hospital visits. Population can vary by year, but I assume a yearly denominator is an appropriate denominator for days in the year. 
