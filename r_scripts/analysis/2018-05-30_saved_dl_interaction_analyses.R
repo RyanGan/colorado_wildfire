@@ -69,3 +69,117 @@ plot <- ggplot(plot_df, aes(x=level, y = estimate, colour = level)) +
         axis.text.x = element_text(angle = 90, hjust=0.95, vjust = 0.75))
 # print plot
 plot
+
+# intreaction
+### Estimating Effect of PM~2.5~ on Smoke Days and Non-Smoke Days
+
+
+# start time
+start_time <- Sys.time()
+# distributed lag function
+mort_dl_pm_int_results  <- lapply(co_mort_cc_list, function(x){
+  # output dataframe from list
+  data <- x %>% 
+    mutate(date = as.Date(date),
+           outcome = as.numeric(as.character(outcome))) %>%
+    # remove missing lagged data
+    filter(!is.na(pm25_g_10u_lag6))
+  # output outcome name
+  out_name <- as.character(unique(data$out_name))
+  # print(out_name) # track which outcome dataframe it's on
+  # create lagged matrix
+  pm_mat <- as.matrix(select(data, contains("pm25_g_10u")))
+  temp_mat <- as.matrix(select(data, contains("temp_f_grid")))
+  # define lagged basis spline
+  exp_b <- ns(0:(ncol(pm_mat)-1), df = 4, intercept = T)
+  # temp basis
+  temp_basis <- temp_mat %*% exp_b
+  # create vector of smoke var to estimate over
+  smoke_var <- c("smk0_hms_g", "smk5_hms_g", "smk10_hms_g")
+  
+  smoke_results <- smoke_var %>% 
+    map(function(s){ 
+      smk_mat <- as.matrix(select(data, contains(s)))
+      # lagged pm x basis
+      pm_basis <- pm_mat %*% exp_b
+      smk_basis <- smk_mat %*% exp_b
+      # smoke basis for interaction
+      pm_smk_b <- pm_basis * smk_basis 
+      pm_nosmk_b <- pm_basis * ifelse(smk_basis == 1, 0, 1)
+      # run lagged model
+      lag_mod <- clogit(outcome ~ pm_smk_b + pm_nosmk_b + smk_basis + 
+                          temp_basis + strata(id), data = data)
+      # define strata terms
+      strata_terms <- c("pm_smk_b", "pm_nosmk_b", "smk_basis")
+      # estimate cumulative and lagged effect for each basis
+      
+      lagged_estimates <- strata_terms %>% 
+        map_dfr(~distribute_that_lag(lag_mod = lag_mod, strata = ., 
+                                     exposure_basis = exp_b)) %>% 
+        mutate(outcome = out_name, smoke = s) %>% 
+        select(outcome, smoke, strata:upper_95)
+      
+      return(lagged_estimates)      
+    }) %>%  # end smoke map
+    # bind rows
+    map_dfr(.,rbind)
+}) %>%  #end lappply
+  # bind rows
+  map_dfr(.,rbind)
+# stop time
+stop_time <- Sys.time() - start_time
+
+
+
+
+
+cumulative_nosmk <- mort_dl_pm_int_results %>% 
+  filter(type == "cumulative" & smoke == "smk5_hms_g" & 
+           strata == "pm_nosmk_b" & outcome != "card_arrest")
+
+# plot results
+plot_nosmk <- ggplot(cumulative_nosmk, aes(x=time, y=odds_ratio)) +
+  geom_line(colour = "blue", size = 1) +
+  geom_ribbon(aes(ymin = lower_95, ymax = upper_95), 
+              fill = "blue", alpha = 0.3) + 
+  scale_x_continuous(breaks = c(seq(0,7, by=1))) +
+  geom_hline(yintercept = 1, linetype = 2, colour = "red") +
+  # adding facet wrap to estimate for each outcome
+  facet_wrap(~outcome, scales = "free_y") +
+  ylab(expression("Odds Ratio")) +
+  xlab("Lagged Days") +
+  ggtitle("No Smoke") +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_line(linetype = "dotted"),
+        panel.grid.minor = element_blank()) +
+  theme_minimal()
+
+# print plot
+print(plot_nosmk)
+
+
+
+
+cumulative_smk <- mort_dl_pm_int_results %>% 
+  filter(type == "cumulative" & smoke == "smk5_hms_g" & 
+           strata == "pm_smk_b" &  outcome != "card_arrest")
+
+# plot results
+plot_smk <- ggplot(cumulative_smk, aes(x=time, y=odds_ratio)) +
+  geom_line(colour = "blue", size = 1) +
+  geom_ribbon(aes(ymin = lower_95, ymax = upper_95), 
+              fill = "blue", alpha = 0.3) + 
+  scale_x_continuous(breaks = c(seq(0,7, by=1))) +
+  geom_hline(yintercept = 1, linetype = 2, colour = "red") +
+  # adding facet wrap to estimate for each outcome
+  facet_wrap(~outcome, scales = "free_y") +
+  ylab(expression("Odds Ratio")) +
+  xlab("Lagged Days") +
+  ggtitle("Smoke") +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_line(linetype = "dotted"),
+        panel.grid.minor = element_blank()) +
+  theme_minimal()
+
+# print plot
+print(plot_smk)

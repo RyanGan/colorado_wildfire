@@ -11,9 +11,9 @@ editor_options:
 
 # Introduction
 
-Environmental epidemiology rarely has individual-level estimates of exposure for study participants/outcomes observations. Exposure it air pollution is a good example of this short-coming, where collection of individual-level particulate exposure is rare as the time contraints and burden on participants are costly. Furthermore, in order to evaluate the relationship with relatively rare outcomes like hospitalizations or mortality, large cohorts of subjects would need to be followed for an extended period of time. 
+Environmental epidemiology rarely has individual-level estimates of exposure for study participants/outcomes observations. Exposure it air pollution is a good example of this short-coming, where collection of individual-level particulate exposure is rare as the time contraints and burden on participants are costly. Furthermore, in order to evaluate the relationship with relatively rare outcomes like hospitalizations or mortality, large cohorts of subjects would need to be followed for an extended period of time. Therefore, it is common to assign exposure to air pollution based on reported place of residence as proxy for invidiual-level exposure. 
 
-Therefore, it is common to assign exposure to air pollution based on reported place of residence as proxy for invidiual-level exposure. In the United States, administrative healthcare claims data can offer sufficient sample sizes in rare events for both time and space. However, detailed location of residence is often not available. Therefore, exposure is often assigned based on a arbitrary spatial unit such as county (used for political reasons) or ZIP code (used for postal delivery). This variation in spatial resolution can result in different results and is known as the modifiable areal unit problem (MAUP). This paper explores the association between air pollution, measured by PM~2.5~, and cardiopulmonary mortality and morbidity and how results may differ based on the unit exposure is assigned.
+In the United States, administrative healthcare claims data can offer sufficient sample sizes in rare events for both time and space. However, detailed location of residence is often not available. Therefore, exposure is often assigned based on a arbitrary spatial unit such as county (used for political reasons) or ZIP code (used for postal delivery). This variation in spatial resolution can result in different results and is known as the modifiable areal unit problem (MAUP). This paper explores the association between air pollution, measured by PM~2.5~, and cardiopulmonary mortality and morbidity and how results may differ based on the unit exposure is assigned.
 
 For this particular set of analyses, I want to estimate the cardiopulmonary morbidity/mortality of PM~2.5~ population-weighted and assigned at the county-level, zipcode-level, PM~2.5~ area-weighted and assigned at the county- and zipcode-level, and finally PM~2.5~ 15 km^2^ grid level. 
 
@@ -33,59 +33,192 @@ library(sf) # tidy simple features
 knitr::opts_chunk$set(fig.width=8, fig.height=6, quite = T, message = F)
 ```
 
-Setting up custom color theme.
+## Study Maps
 
-```{r color_theme}
- ryan_theme <- theme(panel.background = element_rect(fill = "black", 
-          colour = "black", size = 0.5, linetype = "solid"),
-        panel.grid.major = element_line(size = 0.2, colour = "white"),
-        panel.grid.minor = element_line(size = 0.1, color = "white", 
-                                        linetype = "dotted"),
-        plot.background = element_rect(fill = "#141e30", colour="#141e30",
-                                       size = 0.5, linetype = "solid"),
-        text = element_text(colour = "white"),
-        axis.text = element_text(colour = "white"),
-        strip.background = element_blank(),
-        strip.text = element_text(colour="white"),
-        legend.background = element_blank(),
-        legend.key = element_blank())
+Setting up study map of county and grid.
+
+Creating bbox_clip function to clip different shape objects by latitude and longitude.
+
+```{r bbox_clip_function}
+# clip by bbox function ------
+bbox_clip <- function(sf, bbox) {
+  # find the CRS of the sf object
+  crs <- sf::st_crs(sf)$proj4string
+  # create matrix
+  x <- c(bbox[1], bbox[1], bbox[3], bbox[3], bbox[1])
+  y <- c(bbox[2], bbox[4], bbox[4], bbox[2], bbox[2])
+  coords <- matrix(cbind(x, y), ncol=2)
+  # create polygon and assign same coord crs as sf object
+  coords_poly <- sp::Polygon(coords)
+  bbox_poly <- sp:: SpatialPolygons(list(sp::Polygons(list(coords_poly),
+    ID = "bbox")), proj4string = sp::CRS(crs))
+  # convert to sf feature
+  bbox_sf <- st_as_sf(bbox_poly)
+  # clip sf object
+  clipped_sf <- sf[bbox_sf,]
+  return(clipped_sf)
+}
+
+# clipping bounding box
+study_bbox <- st_bbox(c(xmin=-105.3, xmax=-104.5, ymax=41, ymin = 38))
 ```
 
-## Maps
-
-I want to know what the overlap between the Colorado grid and county interesects look like. Same with Zip.
-
-Reading in grid and county simple features.
-
-Also, I will probably restrict the study area to Front Range Communities along I-25 based on Jeff's advise. I also think it might make visualizations a bit easier.
-
-Things to add to the map: City locations, population density, I-25 and I-70. A scale and compass.
+Reading in Colorado counties and grid simple features. I'm also going to subset a simple features dataframe to include counties with bigger cities on the Front Range. I'm also going to include Pueblo, which normally is not considered Front Range, but it has some air pollution stations.
 
 ```{r sf_objects}
+# fips front range
+front_range_fips <- paste0("08", c("001", "005", "013", "014", "031", "035", 
+                                   "041", "059", "069", "101", "123"))
 # read county sf
-county_sf <- st_read(dsn = "../../data/shapefiles/us_county/") %>% 
+co_county_sf <- st_read(dsn = "../../data/shapefiles/us_county/") %>% 
   filter(STATEFP == "08") %>% 
-  mutate(fips = paste0(STATEFP, COUNTYFP))
+  mutate(fips = paste0(STATEFP, COUNTYFP),
+         study_county = if_else(fips %in% front_range_fips, 1, 0))
+  
+# subset county
+co_sub_sf <- co_county_sf %>% 
+  filter(fips %in% front_range_fips)
 
 # output wgs84 projection
-wgs84 <- st_crs(county_sf)
+wgs84 <- st_crs(co_county_sf)
 
-# read grid
+# read grid ----
 grid_sf <- st_read(dsn = "../../data/shapefiles/co_krig_grid/")
 # assign wgs84
 st_crs(grid_sf) <- wgs84
 
-# plot
-ggplot() +
-  geom_sf(data = county_sf, fill = NA, color = "#2bc0e4") +
-  geom_sf(data = grid_sf, fill = NA, color = "white", size = 0.1) +
-  ryan_theme
+# create grids in front range fips; some counties may not be front-range, but
+# this is a quick way to do it
+front_range_grid <- grid_sf[filter(co_county_sf, fips %in% front_range_fips), ]
+
+# clipping bounding box
+study_bbox <- st_bbox(c(xmin=-105.3, xmax=-104.5, ymax=41, ymin = 38))
 ```
 
+Reading in I-25 and I-70 simple features for reference.
+
+```{r interstate_sf}
+# read in colorado roads shapefile
+interstate <- st_read(paste0("../../data/shapefiles/tl_2015_08_prisecroads"), 
+                      layer = "tl_2015_08_prisecroads") %>% 
+  # filter to I25 lines
+  filter(RTTYP == "I") %>% 
+  st_transform(crs = wgs84)
+
+# interstate clip
+i_clip <- bbox_clip(interstate, study_bbox)
+```
+
+Reading in city boundary simple features.
+
+```{r city_sf}
+# read in city polygons 2010
+city <- st_read("../../data/shapefiles/Colorado_City_Point_Locations/", 
+                layer = "Colorado_City_Point_Locations") %>% 
+  st_transform(crs = wgs84)
+
+# limit cities 
+city_points <- city %>% 
+  filter(NAME %in% c("FORT COLLINS", "PUEBLO", "GREELEY", "BOULDER", "DENVER",
+                     "COLORADO SPRINGS")) %>% 
+  mutate(city = stringr::str_to_title(NAME))
+```
+
+Reading 2015 population estimate geotiff for Colorado. I made this file for the ALA project from the SEDAC 2015 global estimate.The resolution is on the finer 3x3 grid resolution. I could consider plotting based on the 15x15 km grid.
+
+```{r population_raster}
+# read colorado 2015 population raster
+co_pop_2015 <- raster::raster("../../data/shapefiles/2015-ColoradoPopDensity.tif")
+# extract bbox of clipped county subset
+fr_extent <- raster::extent(study_bbox[c(1,3,2,4)])
+# raster
+fr_pop_2015 <- raster::crop(co_pop_2015, fr_extent)
+
+# i'm going to create a shapefile/simple features; easier to plot
+front_range_pop_sf <- st_as_sf(raster::rasterToPolygons(fr_pop_2015)) %>% 
+  rename(popden = X2015.ColoradoPopDensity) %>% 
+  # filtering to cells > 100 
+  filter(popden > 100)
+
+# cut once more to county shapefile so that populations outside the counties are not present
+pop_clip <- front_range_pop_sf[co_sub_sf,]
+```
+
+Inset map of shaded counties that make up the study area of Front Range counties and basically where most people live in Colorado..
+
+```{r state_map}
+# create county inset map
+inset_map <- ggplot(co_county_sf) +
+  geom_sf(aes(fill = as.factor(study_county)), color = "black", alpha = 0.5, 
+          size = 0.5) +
+  scale_fill_manual(values = c(NA, "red"), guide = F) +
+  #geom_sf(data = grid_sf, fill = NA, color = "red", size = 0.1) +
+  ggtitle("Colorado: Study Area Counties") +
+  theme(plot.title = element_text(size = 12),
+        panel.background = element_blank(),
+        panel.grid.major = element_line(colour = 'transparent'),
+        panel.grid.minor = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        plot.background = element_rect(fill = "transparent", 
+                                       color = "transparent"))
+inset_map
+```
+
+Creating finer detailed study map.
+
+```{r study_map}
+# plot map
+study_map <-ggplot(pop_clip) +
+  # start with plot of simple features of populations
+  geom_sf(aes(fill=popden), color = NA) +
+  # define aesthetics of poipulation
+    scale_fill_gradient(name = expression("Population per km"^2), 
+      low = "#26d0ce", high = "#1a2980") +
+  # plot lines of counties
+  geom_sf(data = co_sub_sf, color = "black", 
+          fill = "transparent", size = 0.5) +
+  # plot i-25 and i-70
+  geom_sf(data = i_clip, aes(color = "Interstate"), show.legend = "line") +
+  # plot study grid
+  geom_sf(data = front_range_grid, aes(color = "Study Grid"), 
+          fill = "transparent", 
+          size = 0.1, show.legend = "line") +
+  # custom colors for interstate and study grid
+  scale_color_manual(values = c("Interstate" = "#0f9b0f", 
+                                "Study Grid" = "red"), 
+    labels = c("Interstate", "Study Grid"),
+    name = "Boundary") + 
+  # major city points and names
+  geom_point(data = city_points, aes(x = LONG, y = LAT), color = "#3f2b96") +
+  geom_text(data = city_points, aes(x = LONG, y = LAT, label = city), 
+             color = "#3f2b96", size = 4, hjust = 1, vjust = -0.6) +
+  # theme
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(colour = 'transparent'),
+        panel.grid.minor = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        legend.key = element_rect(fill = NA, colour = NA, size = 0.25))
+
+study_map
+```
+
+Final map with inset. Using the grid package. I will add a scale and compass. Open to suggestions on color and what is shown. I had the grid on the inset map but it made it hard to see study counties.I thought of adding ZIP Code, but it might make the map unreadable. I'm also not sure I liked the pieces of the grid over a nice rectangle, but these are the grids that would have any contribution to the counties the are in or touch. Should I exclude Pueblo from analysis since it's not really in Front Range? Ask Kate for her performance statistics.
+
+```{r map_w_inset}
+# save map
+# tiff(filename = "study_map.tiff", w=850, h)
+grid::grid.newpage()
+vpmain <- grid::viewport(width = 1, height = 1, x = 0.5, y = 0.5)
+vpinset <- grid::viewport(width = 0.25, height = 0.25, x = 0.7, y = 0.85)
+print(study_map, vp = vpmain)
+print(inset_map, vp = vpinset)
+```
 
 ## PM~2.5~ Exposure
-
-I want to add some distributions, summary statistics, of PM~2.5~ based on varying levels of grid assignment.
 
 Setting up funlag function to create lagged datastructures. 
 
@@ -115,6 +248,10 @@ grid_pm <- read_csv("../../data/smoke/1015-grid_pm.csv", col_types = "cDdddd") %
                                       month %in% c(3:5) ~ "spring",
                                       month %in% c(6:8) ~ "summer",
                                       month %in% c(9:11)~ "fall")),
+         # set krig values lower than 0 to 0
+         pm25_grid = if_else(pm25_grid < 0, 0, pm25_grid),
+         smk5_g_hms = if_else(pm_diff_grid > 5 & 
+                                month %in% c(4:10) & hms_grid == 1, 1, 0),
          # transforming pm kriged estimates to a 10 unit increase in pm
          pm25_g_10u = pm25_grid/10) %>% 
   # sorting by fips and date to estimate lag for each county by date
@@ -122,7 +259,8 @@ grid_pm <- read_csv("../../data/smoke/1015-grid_pm.csv", col_types = "cDdddd") %
   # group by fips 
   group_by(GRID_ID) %>%
   # apply funlag to create lagged estimates for pm2.5 and temperature
-  mutate(., !!!funlag(pm25_g_10u,6), !!!funlag(temp_f_grid, 6)) %>% 
+  mutate(., !!!funlag(pm25_g_10u,6), !!!funlag(temp_f_grid, 6), 
+         !!!funlag(smk5_g_hms)) %>% 
   select(-c(month, year))
 ```
 
@@ -153,62 +291,187 @@ county_pm <- read_csv(paste0("../../../meta_wildfire/data/smoke/",
   select(-c(month, year))
 ```
 
+Subset grid and PM data for small-multiples plotting.
+
+```{r pm_df}
+# load grid id key
+grid_key <- read_csv("../../data/shapefiles/wrfgrid_key.csv", 
+                     col_types = cols(.default = "d", GRID_ID = "c", 
+                                      WRFGRID_ID = "c")) %>% 
+  select(GRID_ID, WRFGRID_ID)
+
+# find county intersects with grid id
+grid_county_key <- st_intersection(co_sub_sf, front_range_grid) %>% 
+  select(GRID_ID, fips, NAME) %>% 
+  mutate(GRID_ID = as.character(GRID_ID),
+         county_name = as.character(NAME)) %>% 
+  select(-NAME)
+# remove geometry atribute
+st_geometry(grid_county_key) <- NULL
+
+# county names
+county_names <- grid_county_key %>% 
+  group_by(county_name, fips) %>% 
+  summarise(grid_n = n())
+
+# subset colorado grid pm to only study counties
+fr_grid_pm <- grid_pm %>% 
+  filter(GRID_ID %in% front_range_grid$GRID_ID) %>% 
+  # join county id 
+  left_join(grid_county_key, by = "GRID_ID")
+
+# subset county pm to front range counties
+fr_county_pm <- county_pm %>% 
+  filter(fips %in% unique(grid_county_key$fips)) %>% 
+  left_join(county_names, by = "fips")
+```
+
+
+### Plot of Grid Time Series in Each Study County
+
+County population-weighting PM~2.5~ (red line) tracks well with grid-level estimates (blue).
+
+I could geo_facet this where the small-multiples are arranged spatially to county locations. I think that would be a nice touch.
+
+```{r}
+pm_plot <- ggplot(data = fr_grid_pm, 
+                  aes(x=date, y=pm25_grid, group = county_name)) +
+  geom_line(color = "blue") +
+  geom_line(data = fr_county_pm, 
+            aes(x=date, y = pm25_c, group = county_name), 
+            color = "red", alpha = 0.5) +
+  facet_wrap(~county_name) +
+  theme_minimal()
+
+pm_plot
+```
+
+There is probably a better way to present this, but I'm moving on for now.
+
 ## Outcomes Data Frames
 
 For inpatient hospitalization, I have data provided by Colorado Hosptial Association and Colorado Department of Public Health and Environment from 2010-01-01 to 2015-09-01 (when claims shifted from ICD9 to ICD10). I am evaluating inpatient hospitalizations admitted through the emergency room to capture acute events and not scheduled events. I am also evaluating only aggregate respiratory and cardiovascular outcomes (not getting in to specific outcomes for these analyses to focus on MAUP). 
 
 For mortality data, I have vital statistics from the Colorado Departmen of Public Health and Environment from 2010-01-01 to 2015-12-01. I am evaluating underlying cause of death using ICD-10 codes. I am only looking at aggregate respiratory and cardiovascular. 
 
-Limiting to non-winter/cold months (April to October).
+Loading time-stratified case-crossover data frames I saved as list objects. I'm going to limit both the morbidity and mortality dataframes to cardiovscular disease and respiratory outcomes. I have also loaded the ICD-9 codes used to code a primary diagnosis and ICD-10 codes used to code underlying cause of death. Starting by loading mortality data.
 
-### Descriptives
-
-I think a small-multiples time-series plot of CVD hospitalizations and mortality and respiratory hospitalizations and mortality would be nice here. I would also add the total n for each time-series in the facet header to provide counts of observed outcomes.
-
-### Joining PM~2.5~ Estimates
-
-Loading time-stratified case-crossover data frames I saved as list objects. I'm going to limit both the morbidity and mortality dataframes to cardiovscular disease and respiratory outcomes. I have also loaded the ICD-9 codes used to code a primary diagnosis and ICD-10 codes used to code underlying cause of death. 
-
-```{r cvd_resp_outcomes}
+```{r cvd_resp_mortality}
 # load casecross  mortality list
 load("../../data/health/co_mortality_cc_list.RData") 
 # load icd10 outcome list
 load("../../data/health/icd10_outcome.RData")
+
 # co cvd and resp mortaility
-co_death_list <- casecross_list[c(1,4)]
+co_death_list <- casecross_list[c(1,3,4,5,7,9)]
+
 # removing casecross_list to save memeory
 rm(casecross_list)
+```
 
+Loading morbidity data.
+
+```{r resp_cvd_morbidity}
 # load casecross list
 load("../../data/health/1015-co_morbidity_casecross_list.RData")
 # load icd9
 load("../..//data/health/icd9_outcome_vectors.RData")
+names(icd9_outcomes)
 # co hosp list
-co_hosp_list <- co_morbidity_cc_list[c(1,6)]
+co_hosp_list <- co_morbidity_cc_list[c(1,2,3,6,7,8,10,11)]
 # removing 
 rm(co_morbidity_cc_list)
 ```
 
-Joining with PM~2.5~ data and also limiting to front range counties. I'm also limiting to April and October.
+### Descriptives
 
-Vector setup that may go in other places. For example, front range fips might belong up in the maps part.
-```{r vector_set_up}
+I think a small-multiples time-series plot of CVD hospitalizations and mortality and respiratory hospitalizations and mortality would be nice here for the counties of interest. I would also add the total n for each time-series in the facet header to provide counts of observed outcomes.
 
-# extract a vector of outcome names from the icd10 outcomes list 
-outcome <- c("Respiratory", "Cardiovasclar")
+I think I'm going to calculate a weekly rate for the entire counties and only cardiovascular and respiratory for a couple reasons, but mainly to avoid any potential rare events that may let somesome be identified on a particular date. I'm really after major trends that may bias results. 
 
-# fips front range
-front_range_fips <- paste0("08", 
-  c("001", "005", "013", "014", "031", "035", "041", "059", "069", "101", "123"))
+This would be county-specific mortality rates for the Front Range.
+```{r mortality_rate}
+# read in county population denominators for colorado
+county_pop <- read_csv("../../data/health/2016-colorado_population.csv") %>% 
+  rename(fips = GEO.id2) %>% 
+  select(fips, respop72010:respop72015) %>% 
+  filter(fips %in% front_range_fips) %>% 
+  gather(year, population, -fips) %>% 
+  mutate(year = as.numeric(str_sub(year, start = 8)))
 
-# load grid id key
-grid_key <- read_csv("../../data/shapefiles/wrfgrid_key.csv", 
-                     col_types = cols(.default = "d", GRID_ID = "c", 
-                                      WRFGRID_ID = "c")) %>% 
-  select(GRID_ID, WRFGRID_ID)
+# assign death outcome
+death_outcome <- names(co_death_list)
+
+# time series of weekly death and rate for cardiovascular and respiratory
+death_ts <- map2(.x = co_death_list,  .y = death_outcome, 
+                 ~ filter(.x, outcome == 1 & fips %in% front_range_fips) %>% 
+                   mutate(date = as.Date(as.character(date_of_death)),
+                          week = floor_date(date, unit = "week")) %>% 
+                   group_by(week, fips) %>% 
+                   summarise(n = n()) %>% 
+                   left_join(county_names, by = "fips") %>% 
+                   mutate(year = year(week),
+                          outcome = .y) %>% 
+                   left_join(county_pop, by = c("fips", "year")) %>% 
+                   mutate(rate_per_100k = (n/population)*100000) %>% 
+                   filter(week >= "2010-01-01" & week <= "2015-12-31")) %>% 
+  map_dfr(., rbind)
 ```
 
-Joining PM~2.5~ values of county and grid to death list.
+Morbidity weekly count time series.
+
+```{r hosp_rate}
+# hosp_names
+hosp_outcome <- names(co_hosp_list)
+# time series of weekly death and rate for cardiovascular and respiratory
+hosp_ts <- map2(.x = co_hosp_list,  .y = hosp_outcome, 
+                 ~ filter(.x, outcome == 1 & fips %in% front_range_fips) %>% 
+                   mutate(date = as.Date(as.character(date)),
+                          week = floor_date(date, unit = "week")) %>% 
+                   group_by(week, fips) %>% 
+                   summarise(n = n()) %>% 
+                   left_join(county_names, by = "fips") %>% 
+                   mutate(year = year(week),
+                          outcome = .y) %>% 
+                   left_join(county_pop, by = c("fips", "year")) %>% 
+                   mutate(rate_per_100k = (n/population)*100000) %>% 
+                   filter(week >= "2010-01-01" & week <= "2015-12-31")) %>% 
+  map_dfr(., rbind)
+```
+
+Bind time series together.
+
+```{r outcomes_ts}
+fr_death_ts <- death_ts %>% 
+  group_by(week, outcome) %>% 
+  summarise(n = sum(n), pop = sum(population)) %>% 
+  mutate(rate_per_100k = (n/pop)*100000,
+         strata = paste0("Mortality: ", outcome)) %>% 
+  filter(outcome %in% c("cvd", "resp"))
+
+fr_hosp_ts <- hosp_ts %>% 
+  group_by(week, outcome) %>% 
+  summarise(n = sum(n), pop = sum(population)) %>% 
+  mutate(rate_per_100k = (n/pop)*100000,
+         strata = paste0("Morbidity: ", outcome)) %>% 
+  filter(outcome %in% c("cvd", "resp"))
+
+# bind together
+fr_ts <- bind_rows(fr_death_ts, fr_hosp_ts)
+
+ggplot(fr_ts, aes(x = week, y = rate_per_100k)) +
+  geom_point() +
+  facet_wrap(~strata, scales = "free_y") +
+  theme_minimal()
+```
+
+There is a peak in mortality and morbidity for respiratory at the end of 2014 start of 2015. I believe this is likely associated with the influenza season that was bad that year. Seasonal analysis may be interesting rather than just warm months....
+
+This plot needs work too. I also want to add a outcome numbers for the months included in the analyses tables.
+
+### Joining PM~2.5~ Estimates
+
+Joining with PM~2.5~ data and also limiting to front range counties. I'm also limiting to April and October.
 
 ```{r death_pm_join}
 # assign outcome names to each dataframe in list
@@ -221,7 +484,6 @@ co_death_list_pm <- co_death_list %>%
                WRFGRID_ID = as.character(wrfgrid_id)) %>%
       # filter out 2016; I don't have pm data yet
       filter(date <= "2015-12-30") %>% 
-      # filter(month %in% 3:10) %>% 
       # filter to front range
       filter(fips %in% front_range_fips) %>% 
       # remove vars to prevent duplicates
@@ -230,30 +492,7 @@ co_death_list_pm <- co_death_list %>%
       left_join(grid_pm, by = c("GRID_ID", "date")) %>% 
       left_join(county_pm, by = c("fips", "date"))) %>% 
   # add outcome name to each dataframe
-  map2(.x = ., .y = outcome, ~mutate(.x, out_name = .y)) 
-```
-
-Joining PM~2.5~ to hosptializations list.
-
-Join PM values to morbidity list.
-
-```{r hosp_pm}
-# create list
-co_hosp_list_pm <-  co_hosp_list %>% 
-  # desired format to make sure it's right
-  map(~ select(., id:state) %>% 
-        mutate(outcome = as.numeric(as.character(outcome)),
-               date = as.Date(as.character(date)),
-               month = as.factor(lubridate::month(date)),
-               WRFGRID_ID = as.character(WRFGRID_ID)) %>%
-      #filter(month %in% 4:10) %>% 
-      # filter to front range, this will get only colorado
-      filter(fips %in% front_range_fips) %>% 
-      left_join(grid_key, by = "WRFGRID_ID") %>% 
-      left_join(grid_pm, by = c("GRID_ID", "date")) %>% 
-      left_join(county_pm, by = c("fips", "date"))) %>% 
-  # add outcome name to each dataframe
-  map2(.x = ., .y = outcome, ~mutate(.x, out_name = .y)) 
+  map2(.x = ., .y = death_outcome, ~mutate(.x, out_name = .y)) 
 ```
 
 ## Distributed Lag
@@ -320,6 +559,8 @@ distribute_that_lag <- function(lag_mod, strata, exposure_basis) {
  } # end lag estimate function
 ```
 
+## Mortality and PM~2.5~ Association
+
 Model fit of distributed lag spline of PM~2.5~ and temperature.
 
 ```{r death_dl_fit}
@@ -329,7 +570,7 @@ death_dl_fit <- map(co_death_list_pm, function(x){
   data <- x %>% 
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
-    filter(month %in% 4:9) %>% 
+    filter(month %in% 5:9) %>% 
     # remove missing lagged data
     filter(!is.na(pm25_g_10u_lag6))
   # output outcome name
@@ -378,7 +619,7 @@ death_min_aic <- death_dl_fit %>%
 print(death_min_aic)
 ```
 
-Model distributed lag results based on best fit by AIC. Limiting April to September when it's warm out. I guess I could do a seasonal strata. I should actually define seasons better based on date rather than month. Justification would be the Peng seasonal paper which finds the strongest effect in summer months. 
+Model distributed lag results based on best fit by AIC. Limiting April through October when it's warm out. I guess I could do a seasonal strata. I should actually define seasons better based on date rather than month. Justification would be the Peng seasonal paper which finds the strongest effect in summer months, and more importantly, no effect during winter months. I've seen my effects wash out when I include cold months. Peng et al argues for different seasonal sources, but I'd also argue for behavioral differences such as leaving windows open, or going outside more, etc. 
 
 ```{r death_dl_grid}
 # create fit list to use with purrr:map2
@@ -389,7 +630,7 @@ death_dl_pm_results  <- map2(co_death_list_pm, fit_list, function(df, fit){
   data <- df %>% 
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
-    filter(month %in% 4:9) %>% 
+    filter(month %in% 5:9) %>% 
     # remove missing lagged data
     filter(!is.na(pm25_g_10u_lag6)) 
   
@@ -424,7 +665,8 @@ death_dl_pm_results  <- map2(co_death_list_pm, fit_list, function(df, fit){
   mutate(exp_area = "grid")
 ```
 
-County. 
+Estimation of population-weighted county PM~2.5~ and mortality.
+
 ```{r dl_county_results}
 # distributed lag function
 death_dl_c_results  <- map2(co_death_list_pm, fit_list, function(df, fit){
@@ -432,7 +674,7 @@ death_dl_c_results  <- map2(co_death_list_pm, fit_list, function(df, fit){
   data <- df %>% 
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
-    filter(month %in% 4:9) %>% 
+    filter(month %in% 5:9) %>% 
     # remove missing lagged data
     filter(!is.na(pm25_g_10u_lag6)) 
   
@@ -467,26 +709,24 @@ death_dl_c_results  <- map2(co_death_list_pm, fit_list, function(df, fit){
   mutate(exp_area = "county")
 ```
 
+Plot showing the cumulative effect of up to a week of a 10 ug/m^3^ increase in PM~2.5~ on risk of mortality with an underlying cause of death for cardiovascular and respiratory. Right now I'm showing PM~2.5~ assigned using the grid IDs, and county-level population weighting. Good news is that population-weighting seems to produce similar results. 
 
-Plot.
-
-```{r result_plot}
+```{r death_result_plot}
 plot_df <- bind_rows(death_dl_pm_results, death_dl_c_results) %>% 
   mutate(group = paste0(outcome, ": ", exp_area))
-glimpse(plot_df)
+
 # plot results
 plot <- ggplot(plot_df, aes(x=time, y=odds_ratio)) +
-  geom_line(colour = "blue", size = 1) +
+  geom_line(colour = "black", size = 1) +
   geom_ribbon(aes(ymin = lower_95, ymax = upper_95), 
-              fill = "blue", alpha = 0.3) + 
+              fill = "grey", alpha = 0.5) + 
   scale_x_continuous(breaks = c(seq(0,7, by=1))) +
-  geom_hline(yintercept = 1, linetype = 2, colour = "red") +
+  geom_hline(yintercept = 1, linetype = 2, colour = "black") +
   # adding facet wrap to estimate for each outcome
-  facet_wrap(~ group) +
-  ylim(0.85, 1.25) +
+  facet_wrap(~ group, scales = "free_y") +
   ylab(expression("Odds Ratio: 10 ug/m^3 increase PM2.5")) +
   xlab("Lagged Days") +
-  ggtitle("Grid-Level Cumulative Effect of PM2.5 on Mortality") +
+  ggtitle("Risk of Mortality for a 10 ug/m") +
   theme(panel.grid.major.x = element_blank(),
         panel.grid.major.y = element_line(linetype = "dotted"),
         panel.grid.minor = element_blank()) +
@@ -495,59 +735,311 @@ plot <- ggplot(plot_df, aes(x=time, y=odds_ratio)) +
 print(plot)
 ```
 
-It would probably be a good idea to see if degrees of freedom fit owuld be the same for each.
+Risk for mortality with cardiovascular as the underlying cause of death is increased by roughtly 10% after 3 to 4 days of elevated exposure to PM~2.5~. The 95% CI indicates this value over the time period could be as low as a 1% increase in risk, but could be as high as a 19% increase in risk.
+
+Risk for mortality with respiratory as the underlying cause of death is increased by roungly 9% a day or so of a 10 ug/m^3^ increase in PM~2.5~ with the risk increasing to as high as 12% following two days of increased PM~2.5~ exposure. The 95% CI indicates that the value could be as low as essentially no increase (0%) in risk, and as high as 10% to 20% increase in risk from days 0 to 2.
+
+Note: It would probably be a good idea to see if degrees of freedom fit would be the same for each.
 
 Itterating through list of case-crossover dataframes and running distributed lag models based on best degree of freedom fit for each temperature and pm spline.
 
-```{r pm_death_results}
+## Morbidity and PM~2.5~ Association
+
+Joining PM~2.5~ estimates to hosptializations list. I will limit analyses to April through October in the model step.
+
+```{r hosp_pm}
+# create list
+co_hosp_list_pm <-  co_hosp_list %>% 
+  # desired format to make sure it's right
+  map(~ select(., id:state) %>% 
+        mutate(outcome = as.numeric(as.character(outcome)),
+               date = as.Date(as.character(date)),
+               month = as.factor(lubridate::month(date)),
+               WRFGRID_ID = as.character(WRFGRID_ID)) %>%
+      left_join(grid_key, by = "WRFGRID_ID") %>%
+      filter(GRID_ID %in% front_range_grid$GRID_ID) %>% 
+      left_join(grid_pm, by = c("GRID_ID", "date")) %>% 
+      left_join(county_pm, by = c("fips", "date"))) %>% 
+      # filter to front range, this will get only colorado
+  # add outcome name to each dataframe
+  map2(.x = ., .y = hosp_outcome, ~mutate(.x, out_name = .y)) 
+```
+
+Finding best-fit dl splines for PM~2.5~ assigned at grid-level based on lowest AIC.
+
+```{r hosp_dl_fit}
 # distributed lag function
-death_dl_pm_results  <- lapply(co_death_list_pm, function(x){
+hosp_dl_fit <- map(co_hosp_list_pm, function(x){
   # output dataframe from list
   data <- x %>% 
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
+    filter(month %in% 5:9) %>% 
     # remove missing lagged data
     filter(!is.na(pm25_g_10u_lag6))
   # output outcome name
   out_name <- as.character(unique(data$out_name))
-  # print(out_name) # track which outcome dataframe it's on
   # create lagged matrix
   pm_mat <- as.matrix(select(data, contains("pm25_g_10u")))
   temp_mat <- as.matrix(select(data, contains("temp_f_grid")))
-  # define lagged basis spline
-  exp_b <- ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
+  # set up df_pm and df_temp
+  df_pm <- 2:4
+  df_temp <- 2:4
+  # set up combinations of df_pm and df_temp
+  df_combo <- expand.grid(df_pm, df_temp)
+  colnames(df_combo) <- c("df_pm", "df_temp")
+  # bind in outcome name
+  df_combo$outcome <- out_name
+  
+  outcome_fit <- apply(df_combo, 1, function(fit){
+    # define lagged basis spline for pm
+    p_exp_b <- ns(0:(ncol(pm_mat)-1), df = as.numeric(fit[[1]]), intercept = T)
+    # pm basis
+    pm_basis <- pm_mat %*% p_exp_b
+    
+    # temp basis
+    t_exp_b <- ns(0:(ncol(temp_mat)-1), df = as.numeric(fit[[2]]), intercept = T)
+    temp_basis <- temp_mat %*% t_exp_b
+    # run lagged model
+    lag_mod <- clogit(outcome ~ pm_basis + temp_basis + 
+                      strata(id), data = data)
+    # find aic and join to df_combo
+    aic <- AIC(lag_mod)
+    return(aic)
+    }) # end fit function
+  # bind outcome fit to df_combo list
+  df_combo$aic <- outcome_fit
+  return(df_combo)
+  }) %>% 
+  # bind cvd and resp together
+  map_dfr(.,rbind)
+
+# best fit by lowest aic
+hosp_min_aic <- hosp_dl_fit %>% 
+  group_by(outcome) %>%
+  slice(which.min(aic)) %>% 
+  arrange(desc(outcome))
+# print best fit by aic
+print(hosp_min_aic)
+```
+
+Estimating effect of grid-level PM~2.5~ on cardioresp hospitalizations in warm months.
+
+```{r hosp_dl_grid}
+# create fit list to use with purrr:map2
+hosp_fit_list <- split(hosp_min_aic, seq(nrow(hosp_min_aic)))
+# distributed lag function
+hosp_dl_pm_results  <- map2(co_hosp_list_pm, hosp_fit_list, function(df, fit){
+  # output dataframe from list
+  data <- df %>% 
+    mutate(date = as.Date(date),
+           outcome = as.numeric(as.character(outcome))) %>%
+    filter(month %in% 5:9) %>% 
+    # remove missing lagged data
+    filter(!is.na(pm25_g_10u_lag6)) 
+  
+  # output outcome name
+  out_name <- as.character(unique(data$out_name))
+  # output matrices
+  pm_mat <- as.matrix(select(data, contains("pm25_g_10u")))
+  temp_mat <- as.matrix(select(data, contains("temp_f_grid")))
+  
+  # define lagged basis spline for pm
+  p_exp_b <- ns(0:(ncol(pm_mat)-1), df = fit$df_pm, intercept = T)
   # pm basis
-  pm_basis <- pm_mat %*% exp_b
+  pm_basis <- pm_mat %*% p_exp_b
+  
   # temp basis
-  temp_basis <- temp_mat %*% exp_b
+  t_exp_b <- ns(0:(ncol(temp_mat)-1), df = fit$df_temp, intercept = T)
+    temp_basis <- temp_mat %*% t_exp_b
+    
   # run lagged model
-  lag_mod <- clogit(outcome ~ pm_basis + temp_basis + as.factor(season) +
-                      as.factor(year.x) + strata(id), data = data)
+  lag_mod <- clogit(outcome ~ pm_basis + temp_basis + 
+                      strata(id), data = data)
   
   # estimate lag estimate
   lag_est <- distribute_that_lag(lag_mod, strata = "pm", 
-                                 exposure_basis = exp_b) %>% 
+                                 exposure_basis = p_exp_b) %>% 
     mutate(outcome = out_name) %>% select(outcome, strata:upper_95)
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
   map_dfr(.,rbind) %>% 
-  filter(type == "cumulative")
+  filter(type == "cumulative") %>% 
+  mutate(exp_area = "grid")
 ```
 
-Plotting cumulative effect of PM~2.5~ over a week of exposure.
+Estimating county-level PM~2.5~ effect on hospitalizations.
+
+```{r dl_hosp_county_results}
+# distributed lag function
+hosp_dl_c_results  <- map2(co_hosp_list_pm, hosp_fit_list, function(df, fit){
+  # output dataframe from list
+  data <- df %>% 
+    mutate(date = as.Date(date),
+           outcome = as.numeric(as.character(outcome))) %>%
+    filter(month %in% 5:9) %>% 
+    # remove missing lagged data
+    filter(!is.na(pm25_c_10u_lag6)) 
+  
+  # output outcome name
+  out_name <- as.character(unique(data$out_name))
+  # output matrices
+  pm_mat <- as.matrix(select(data, contains("pm25_c_10u")))
+  temp_mat <- as.matrix(select(data, contains("temp_f_c")))
+  
+  # define lagged basis spline for pm
+  p_exp_b <- ns(0:(ncol(pm_mat)-1), df = fit$df_pm, intercept = T)
+  # pm basis
+  pm_basis <- pm_mat %*% p_exp_b
+  
+  # temp basis
+  t_exp_b <- ns(0:(ncol(temp_mat)-1), df = fit$df_temp, intercept = T)
+    temp_basis <- temp_mat %*% t_exp_b
+    
+  # run lagged model
+  lag_mod <- clogit(outcome ~ pm_basis + temp_basis + 
+                      strata(id), data = data)
+  
+  # estimate lag estimate
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", 
+                                 exposure_basis = p_exp_b) %>% 
+    mutate(outcome = out_name) %>% select(outcome, strata:upper_95)
+  return(lag_est)
+  }) %>%  #end lappply
+  # bind rows
+  map_dfr(.,rbind) %>% 
+  filter(type == "cumulative") %>% 
+  mutate(exp_area = "county")
+```
+
+Plotting county and grid results for hospitalizations.
+
+```{r hosp_result_plot}
+hosp_plot_df <- bind_rows(hosp_dl_pm_results, hosp_dl_c_results) %>% 
+  mutate(group = paste0(outcome, ": ", exp_area))
+
+# plot results
+hosp_plot <- ggplot(hosp_plot_df, aes(x=time, y=odds_ratio)) +
+  geom_line(colour = "black", size = 1) +
+  geom_ribbon(aes(ymin = lower_95, ymax = upper_95), 
+              fill = "grey", alpha = 0.5) + 
+  scale_x_continuous(breaks = c(seq(0,7, by=1))) +
+  geom_hline(yintercept = 1, linetype = 2, colour = "black") +
+  # adding facet wrap to estimate for each outcome
+  facet_wrap(~ group, scales = "free_y") +
+  ylab(expression("Odds Ratio: 10 ug/m^3 increase PM2.5")) +
+  xlab("Lagged Days") +
+  ggtitle("Risk of Hospitalization for a 10 ug/m") +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_line(linetype = "dotted"),
+        panel.grid.minor = element_blank()) +
+  theme_minimal()
+# plot cumulative effect
+print(hosp_plot)
+```
+
+I don't see an association with PM~2.5~ and either COPD or asthma. It also has an inverse association with respiratory. Colorado seems to have some interesting issues I think that I may not have quite yet flushed out. I vaguely recall Kirk and Stephanie saying there were some potential biases in the earlier years of CHA (2010). Also, it's possible that air quality warnings are helpful. Hard to know if a unique observation adheres to this.
+
+Consider only presenting mortality results for this paper.
+
+# Interaction
+
+Grid interaction fit.
+
+```{r hosp_dl_fit}
+# distributed lag function
+mort_dl_fit <- map(co_death_list_pm, function(x){
+
+  # output dataframe from list
+  data <- x %>% 
+    mutate(date = as.Date(date),
+           outcome = as.numeric(as.character(outcome))) %>%
+    filter(month %in% 5:9) %>% 
+    # remove missing lagged data
+    filter(!is.na(pm25_g_10u_lag6))
+  
+  # output outcome name
+  out_name <- as.character(unique(data$out_name))
+  # create lagged matrix of pm_mat, temp_mat and smk_mat
+  pm_mat <- as.matrix(select(data, contains("pm25_g_10u")))
+  temp_mat <- as.matrix(select(data, contains("temp_f_grid")))
+  # create vector of smoke var to estimate over
+  smk_mat <- as.matrix(select(data, contains("smk5_hms_g")))
+  # pm on smoke days matrix
+  pm_smk_mat <- pm_mat * smk_mat
+
+  # pm smoke basis
+  pm_smk_basis <- pm_smk_mat %*% exp_b
+  # pm on  non-smoke days matrix
+  pm_nosmk_mat <- pm_mat * ifelse(smk_mat == 1, 0, 1)
+  
+  # set up df_pm and df_temp
+  df_pm_smk <- 2:4
+  df_pm_nosmk <- 2:4
+  df_smk <- 2:4
+  # set up combinations of df_pm and df_temp
+  df_combo <- expand.grid(df_pm_smk, df_pm_nosmk, df_smk)
+  colnames(df_combo) <- c("df_pm_smk", "df_pm_nosmk", "df_smk")
+  # bind in outcome name
+  df_combo$outcome <- out_name
+  head(df_combo)
+  
+  outcome_fit <- apply(df_combo, 1, function(fit){
+      # set up pm on smoke days matrix
+      # define lagged basis spline for pm
+      pm_smk_exp_b <- ns(0:(ncol(pm_mat)-1), df = as.numeric(fit[[1]]), 
+                         intercept = T)
+      # pm basis
+      pm_basis <- pm_mat %*% p_exp_b
+    
+      # smoke basis for interaction
+      pm_smk_b <- pm_basis * smk_basis 
+      pm_nosmk_b <- pm_basis * ifelse(smk_basis == 1, 0, 1)
+      # run lagged model
+      lag_mod <- clogit(outcome ~ pm_smk_b + pm_nosmk_b + smk_basis + 
+                          temp_basis + strata(id), data = data)
+    
+    # fit
+    # define lagged basis spline for pm
+    p_smk_exp_b <- ns(0:(ncol(pm_mat)-1), df = as.numeric(fit[[1]]), intercept = T)
+    # pm basis
+    pm_basis <- pm_mat %*% p_exp_b
+    
+    # temp basis
+    t_exp_b <- ns(0:(ncol(temp_mat)-1), df = as.numeric(fit[[2]]), intercept = T)
+    temp_basis <- temp_mat %*% t_exp_b
+    # run lagged model
+    lag_mod <- clogit(outcome ~ pm_basis + temp_basis + 
+                      strata(id), data = data)
+    # find aic and join to df_combo
+    aic <- AIC(lag_mod)
+    return(aic)
+    
+    
+    
+    
+    }) # end fit function
+  # bind outcome fit to df_combo list
+  df_combo$aic <- outcome_fit
+  return(df_combo)
+  }) %>% 
+  # bind cvd and resp together
+  map_dfr(.,rbind)
+
+# best fit by lowest aic
+hosp_min_aic <- hosp_dl_fit %>% 
+  group_by(outcome) %>%
+  slice(which.min(aic)) %>% 
+  arrange(desc(outcome))
+# print best fit by aic
+print(hosp_min_aic)
+```
 
 
+meow.
 
-Plot shows a cumulative effect of multiple days of increased exposure in PM~2.5~ for respiratory 0 to 3 days after exposure, getting as high as a 10% relative increase in risk. For CVD, there is an association, but the effect takes longer, which is around 3 to 4 days of increased exposure. The effect gets as high as 10% relative increase in risk. Other possible outcomes of interest. Cardiac arrest has unreasonably high confidence intervals. I may get rid of this underlying cause of death. I saw these same effects in the county-level estimates with similar confidence intervals. 
-
-Consider limiting to only CVD deaths and Respiratory deaths to make the story more straight-forward. I think you can then make plots that are readable and present the cumulative effects for grid, zip, county. Also consider finding degrees of freedom for best spline fit. I've said it before that I think 3 df is good enough for a lot of reasons, but if publishing, it may not hurt to just find best df based on model AIC.
-
-This could really be a general air pollution paper I think. But since this was originally designed to look at the impact wildfire smoke has on populations in Colorado, I'm going to go ahead an run an interaction mode at the assignment of PM~2.5~ at the grid level.
-
-### Estimating Effect of PM~2.5~ on Smoke Days and Non-Smoke Days
-
-```{r int_dl}
+```{r grid_int_fit}
 # start time
 start_time <- Sys.time()
 # distributed lag function
@@ -570,7 +1062,7 @@ mort_dl_pm_int_results  <- lapply(co_mort_cc_list, function(x){
   temp_basis <- temp_mat %*% exp_b
   # create vector of smoke var to estimate over
   smoke_var <- c("smk0_hms_g", "smk5_hms_g", "smk10_hms_g")
-
+  
   smoke_results <- smoke_var %>% 
     map(function(s){ 
       smk_mat <- as.matrix(select(data, contains(s)))
@@ -592,225 +1084,26 @@ mort_dl_pm_int_results  <- lapply(co_mort_cc_list, function(x){
                                      exposure_basis = exp_b)) %>% 
         mutate(outcome = out_name, smoke = s) %>% 
         select(outcome, smoke, strata:upper_95)
-                
+      
       return(lagged_estimates)      
     }) %>%  # end smoke map
-      # bind rows
-      map_dfr(.,rbind)
-  }) %>%  #end lappply
+    # bind rows
+    map_dfr(.,rbind)
+}) %>%  #end lappply
   # bind rows
   map_dfr(.,rbind)
 # stop time
 stop_time <- Sys.time() - start_time
-stop_time
-```
-
-Plot of cumulative effect.
-
-```{r int_cumulative_effect}
-cumulative_nosmk <- mort_dl_pm_int_results %>% 
-  filter(type == "cumulative" & smoke == "smk5_hms_g" & 
-          strata == "pm_nosmk_b" & outcome != "card_arrest")
-
-# plot results
-plot_nosmk <- ggplot(cumulative_nosmk, aes(x=time, y=odds_ratio)) +
-  geom_line(colour = "blue", size = 1) +
-  geom_ribbon(aes(ymin = lower_95, ymax = upper_95), 
-              fill = "blue", alpha = 0.3) + 
-  scale_x_continuous(breaks = c(seq(0,7, by=1))) +
-  geom_hline(yintercept = 1, linetype = 2, colour = "red") +
-  # adding facet wrap to estimate for each outcome
-  facet_wrap(~outcome, scales = "free_y") +
-  ylab(expression("Odds Ratio")) +
-  xlab("Lagged Days") +
-  ggtitle("No Smoke") +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.major.y = element_line(linetype = "dotted"),
-        panel.grid.minor = element_blank()) +
-  theme_minimal()
-
-# print plot
-print(plot_nosmk)
-```
-
-
-```{r}
-cumulative_smk <- mort_dl_pm_int_results %>% 
-  filter(type == "cumulative" & smoke == "smk5_hms_g" & 
-           strata == "pm_smk_b" &  outcome != "card_arrest")
-
-# plot results
-plot_smk <- ggplot(cumulative_smk, aes(x=time, y=odds_ratio)) +
-  geom_line(colour = "blue", size = 1) +
-  geom_ribbon(aes(ymin = lower_95, ymax = upper_95), 
-              fill = "blue", alpha = 0.3) + 
-  scale_x_continuous(breaks = c(seq(0,7, by=1))) +
-  geom_hline(yintercept = 1, linetype = 2, colour = "red") +
-  # adding facet wrap to estimate for each outcome
-  facet_wrap(~outcome, scales = "free_y") +
-  ylab(expression("Odds Ratio")) +
-  xlab("Lagged Days") +
-  ggtitle("Smoke") +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.major.y = element_line(linetype = "dotted"),
-        panel.grid.minor = element_blank()) +
-  theme_minimal()
-
-# print plot
-print(plot_smk)
-```
-
-## Morbidity
-
-Importing morbidity case-crossover list.
-
-Join PM values to morbidity list.
-
-```{r}
-# create outcomes icd9 list
-morb_outcomes <- names(icd9_outcomes)
-
-# create list
-co_morb_cc_list <-  co_morbidity_cc_list %>% 
-  # desired format to make sure it's right
-  map(~ select(., id:state) %>% 
-        mutate(outcome = as.numeric(as.character(outcome)),
-               date = as.Date(as.character(date)),
-               month = as.factor(lubridate::month(date)),
-               WRFGRID_ID = as.character(WRFGRID_ID)) %>%
-      filter(month %in% 4:10) %>% 
-      # filter to front range, this will get only colorado
-      filter(fips %in% front_range_fips) %>% 
-      # remove vars to prevent duplicates
-      select(-month) %>% 
-      left_join(grid_key, by = "WRFGRID_ID") %>% 
-      left_join(grid_pm, by = c("GRID_ID", "date")) %>% 
-      left_join(county_pm, by = c("fips", "date"))) %>% 
-  # add outcome name to each dataframe
-  map2(.x = ., .y = morb_outcomes, ~mutate(.x, out_name = .y)) 
 
 ```
 
-Grid level morbidity association
-
-```{r hosp_same_day_pm}
-# same-day association with pm and mortality during wildfire season
-pm_grid_results <- co_morb_cc_list %>%
-  map_dfr(. , function(df){
-    mod <- clogit(outcome ~ pm25_g_10u + temp_f_grid + strata(id), data = df)
-    est <- broom::tidy(mod) %>% filter(term == "pm25_g_10u") %>% 
-      select(estimate, std.error, conf.low, conf.high) %>% 
-      rename(se = std.error, lower_95 = conf.low, upper_95 = conf.high) %>% 
-      mutate_at(vars(estimate, lower_95, upper_95), funs(round(exp(.),3))) %>% 
-      mutate(level = "grid") 
-    }) %>% # end map
-  cbind(morb_outcomes, .)
-```
-
-A same-day 10 ug/m^3^ increase in county-level population-weighted PM~2.5~ and risk for mortality for certain cardiopulmonary underlying causes of deaths. 
-
-```{r hosp_same_day_conty_pm}
-# same-day association with pm and mortality during wildfire season
-pm_co_results <- co_morb_cc_list %>%
-  map_dfr(. , function(df){
-    mod <- clogit(outcome ~ pm25_c_10u + temp_f_c + strata(id), data = df)
-    est <- broom::tidy(mod) %>% filter(term == "pm25_c_10u") %>% 
-      select(estimate, std.error, conf.low, conf.high) %>% 
-      rename(se = std.error, lower_95 = conf.low, upper_95 = conf.high) %>% 
-      mutate_at(vars(estimate, lower_95, upper_95), funs(round(exp(.),3))) %>% 
-      mutate(level = "county")
-    }) %>% # end map
-  cbind(morb_outcomes, .)
-```
-
-Binding estimates for grid- and county-level same-day estimates together and plotting.
-
-```{r same_day_plot}
-# bind dataframes
-plot_df <- bind_rows(pm_grid_results, pm_co_results)
-
-# plot
-plot <- ggplot(plot_df, aes(x=level, y = estimate, colour = level)) +
-  geom_point() +
-  geom_errorbar(aes(ymin=lower_95, ymax=upper_95), width = 0.3) +
-  scale_color_manual(values = c("#9cecfb", "#ff00cc")) +
-  geom_hline(yintercept = 1, linetype = "dashed", colour = "red") +
-  facet_wrap(~morb_outcomes, scales = "free_y") +
-  ylab("Odds Ratio: 10 ug/m^3") +
-  xlab("Outcome") +
-  ggtitle(paste0("Association between PM2.5 and Hospitalization")) +
-  ryan_theme +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.major.y = element_line(linetype = "dotted"),
-        panel.grid.minor = element_blank(),
-        axis.text.x = element_text(angle = 90, hjust=0.95, vjust = 0.75))
-# print plot
-plot
-```
-
-## Distributed Lag
-
-PM~2.5~ on hospitalizations DL.
-
-```{r pm_morb_results}
-# distributed lag function
-morb_dl_pm_results  <- lapply(co_morb_cc_list, function(x){
-  # output dataframe from list
-  data <- x %>% 
-    mutate(date = as.Date(date),
-           outcome = as.numeric(as.character(outcome))) %>%
-    # remove missing lagged data
-    filter(!is.na(pm25_g_10u_lag6))
-  # output outcome name
-  out_name <- as.character(unique(data$out_name))
-  # print(out_name) # track which outcome dataframe it's on
-  # create lagged matrix
-  pm_mat <- as.matrix(select(data, contains("pm25_g_10u")))
-  temp_mat <- as.matrix(select(data, contains("temp_f_grid")))
-  # define lagged basis spline
-  exp_b <- ns(0:(ncol(pm_mat)-1), df = 4, intercept = T)
-  # pm basis
-  pm_basis <- pm_mat %*% exp_b
-  # temp basis
-  temp_basis <- temp_mat %*% exp_b
-  # run lagged model
-  lag_mod <- clogit(outcome ~ pm_basis + temp_basis + strata(id), data = data)
-  
-  # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm", 
-                                 exposure_basis = exp_b) %>% 
-    mutate(outcome = out_name) %>% select(outcome, strata:upper_95)
-  return(lag_est)
-  }) %>%  #end lappply
-  # bind rows
-  map_dfr(.,rbind)
-```
-
-```{r cardpulm_hosp_cumulative}
-# subsetting to cumulative resutls
-cumulative_results <- morb_dl_pm_results %>% filter(type == "cumulative")
-# plot results
-plot <- ggplot(cumulative_results, aes(x=time, y=odds_ratio)) +
-  geom_line(colour = "blue", size = 1) +
-  geom_ribbon(aes(ymin = lower_95, ymax = upper_95), 
-              fill = "blue", alpha = 0.3) + 
-  scale_x_continuous(breaks = c(seq(0,7, by=1))) +
-  geom_hline(yintercept = 1, linetype = 2, colour = "red") +
-  # adding facet wrap to estimate for each outcome
-  facet_wrap(~outcome, scales = "free_y") +
-  ylab(expression("Odds Ratio: 10 ug/m^3 increase PM2.5")) +
-  xlab("Lagged Days") +
-  ggtitle("Grid-Level Cumulative Effect of PM2.5 on Cardiorespiratory Mortality") +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.major.y = element_line(linetype = "dotted"),
-        panel.grid.minor = element_blank()) +
-  theme_minimal()
-# plot cumulative effect
-print(plot)
-```
 
 # Thoughts that need to be flushed out
 
 - It looks like populaton-weighting is a good way to minimize some of the bias of MAUP? Or at least provides similar results. I think results for area-weighting will be important here.
 
 - While it may be hard to accurately capture variability in PM~2.5~ exposure on a given day across different spatial units, if you assume within a given spatial unit, we've been able to capture daily variation resonably well, using distributed lag models may help overcome some of these limitations.
+
+# Future Steps
+
+- Interaction analysis to evaluate smoke.
