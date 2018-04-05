@@ -261,7 +261,8 @@ grid_pm <- read_csv("../../data/smoke/1015-grid_pm.csv", col_types = "cDdddd") %
   # apply funlag to create lagged estimates for pm2.5 and temperature
   mutate(., !!!funlag(pm25_g_10u,6), !!!funlag(temp_f_grid, 6), 
          !!!funlag(smk5_g_hms)) %>% 
-  select(-c(month, year))
+  select(-c(month, year)) %>% 
+  ungroup()
 ```
 
 ### Zip Exposure
@@ -943,7 +944,7 @@ I don't see an association with PM~2.5~ and either COPD or asthma. It also has a
 
 Consider only presenting mortality results for this paper.
 
-# Interaction
+# Interaction (I may remove this part)
 
 Grid interaction fit.
 
@@ -1101,7 +1102,7 @@ Check this to make sure it works.
 
 ```{r}
 cumulative <- mort_dl_pm_int_results %>% 
-  filter(type == "cumulative" & strata == "pm_nosmk_basis")
+  filter(type == "cumulative" & strata == "pm_smk_basis")
 
 
 
