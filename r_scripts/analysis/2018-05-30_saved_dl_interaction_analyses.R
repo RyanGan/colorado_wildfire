@@ -182,4 +182,186 @@ plot_smk <- ggplot(cumulative_smk, aes(x=time, y=odds_ratio)) +
   theme_minimal()
 
 # print plot
-print(plot_smk)
+
+# Interaction (I may remove this part)
+
+Grid interaction fit.
+
+```{r death_int_fit}
+# distributed lag function
+mort_dl_fit <- map(co_death_list_pm, function(x){
+  # output dataframe from list
+  data <- x %>% 
+    mutate(date = as.Date(date),
+           outcome = as.numeric(as.character(outcome))) %>%
+    filter(month %in% 5:9) %>% 
+    # remove missing lagged data
+    filter(!is.na(pm25_g_10u_lag6))
+  
+  # output outcome name
+  out_name <- as.character(unique(data$out_name))
+  # create lagged matrix of pm_mat, temp_mat and smk_mat
+  pm_mat <- as.matrix(select(data, contains("pm25_g_10u")))
+  temp_mat <- as.matrix(select(data, contains("temp_f_grid")))
+  # create vector of smoke var to estimate over
+  smk_mat <- as.matrix(select(data, contains("smk5_g_hms")))
+  # pm on smoke days matrix
+  pm_smk_mat <- pm_mat * smk_mat
+  # pm on  non-smoke days matrix
+  pm_nosmk_mat <- pm_mat * ifelse(smk_mat == 1, 0, 1)
+  
+  # find best fit spline ----
+  # set up df_pm and df_temp
+  df_pm_smk <- 2:4
+  df_pm_nosmk <- 2:4
+  df_smk <- 2:4
+  # set up combinations of df_pm and df_temp
+  df_combo <- expand.grid(df_pm_smk, df_pm_nosmk, df_smk)
+  colnames(df_combo) <- c("df_pm_smk", "df_pm_nosmk", "df_smk")
+  # bind in outcome name
+  df_combo$outcome <- out_name
+  
+  outcome_fit <- apply(df_combo, 1, function(fit){
+    # set up pm on smoke days matrix
+    # define lagged basis spline for pm
+    pm_smk_b <- ns(0:(ncol(pm_smk_mat)-1), df = as.numeric(fit[[1]]), 
+                   intercept = T)
+    # pm smk basis
+    pm_smk_basis <- pm_smk_mat %*% pm_smk_b
+    
+    # pm no smoke spline
+    pm_no_smk_b <- ns(0:(ncol(pm_nosmk_mat)-1), df = as.numeric(fit[[2]]), 
+                      intercept = T)
+    # pm nosmk basis
+    pm_nosmk_basis <- pm_nosmk_mat %*% pm_no_smk_b
+    
+    # smoke spline
+    smk_b <- ns(0:(ncol(smk_mat)-1), df = as.numeric(fit[[3]]), 
+                intercept = T)
+    # smoke basis
+    smk_basis <- smk_mat %*% smk_b
+    
+    # run lagged model
+    lag_mod <- clogit(outcome ~ pm_smk_basis + pm_nosmk_basis + smk_basis +
+                        strata(id), data = data)
+    # fit
+    # find aic and join to df_combo
+    aic <- AIC(lag_mod)
+    return(aic)
+  }) # end fit function
+  # bind outcome fit to df_combo list
+  df_combo$aic <- outcome_fit
+  return(df_combo)
+}) %>% 
+  # bind cvd and resp together
+  map_dfr(.,rbind)
+
+# best fit by lowest aic
+mort_min_aic <- mort_dl_fit %>% 
+  mutate(outcome = factor(outcome, levels = death_outcome)) %>% 
+  group_by(outcome) %>%
+  slice(which.min(aic)) 
+# print best fit by aic
+print(mort_min_aic)
+```
+
+
+meow.
+
+```{r grid_int_fit}
+# start time
+start_time <- Sys.time()
+mort_fit_list <- split(mort_min_aic, seq(nrow(mort_min_aic)))
+
+# distributed lag function
+mort_dl_pm_int_results  <- map2_dfr(co_death_list_pm, mort_fit_list, 
+                                    function(df, fit){
+                                      # output dataframe from list
+                                      data <- df %>% 
+                                        mutate(date = as.Date(date),
+                                               outcome = as.numeric(as.character(outcome))) %>%
+                                        # remove missing lagged data
+                                        filter(!is.na(pm25_g_10u_lag6))
+                                      # output outcome name
+                                      out_name <- as.character(unique(data$out_name))
+                                      print(out_name) # track which outcome dataframe it's on
+                                      
+                                      # create lagged matrix of pm_mat, temp_mat and smk_mat
+                                      pm_mat <- as.matrix(select(data, contains("pm25_g_10u")))
+                                      temp_mat <- as.matrix(select(data, contains("temp_f_grid")))
+                                      # create vector of smoke var to estimate over
+                                      smk_mat <- as.matrix(select(data, contains("smk5_g_hms")))
+                                      # pm on smoke days matrix
+                                      pm_smk_mat <- pm_mat * smk_mat
+                                      # pm on  non-smoke days matrix
+                                      pm_nosmk_mat <- pm_mat * ifelse(smk_mat == 1, 0, 1)
+                                      
+                                      # pm smoke fit spline
+                                      pm_smk_b <- ns(0:(ncol(pm_smk_mat)-1), df = as.numeric(fit$df_pm_smk), 
+                                                     intercept = T)
+                                      # pm smk basis
+                                      pm_smk_basis <- pm_smk_mat %*% pm_smk_b
+                                      
+                                      # pm no smoke spline
+                                      pm_nosmk_b <- ns(0:(ncol(pm_nosmk_mat)-1), df = as.numeric(fit$df_pm_nosmk), 
+                                                       intercept = T)
+                                      # pm nosmk basis
+                                      pm_nosmk_basis <- pm_nosmk_mat %*% pm_nosmk_b
+                                      
+                                      # smoke spline
+                                      smk_b <- ns(0:(ncol(smk_mat)-1), df = as.numeric(fit$df_smk), 
+                                                  intercept = T)
+                                      # smoke basis
+                                      smoke_basis <- smk_mat %*% smk_b
+                                      
+                                      # run lagged model
+                                      lag_mod <- clogit(outcome ~ pm_smk_basis + pm_nosmk_basis + smoke_basis +
+                                                          strata(id), data = data)
+                                      
+                                      # define strata terms
+                                      strata_terms <- list("pm_smk_basis", "pm_nosmk_basis", "smoke_basis")
+                                      # strata basis list
+                                      strata_b <- list(pm_smk_b, pm_nosmk_b, smk_b)
+                                      # estimate cumulative and lagged effect for each basis
+                                      lagged_estimates <- map2_dfr(.x = strata_terms, .y = strata_b,
+                                                                   function(x, y){ distribute_that_lag(lag_mod = lag_mod, strata = x, 
+                                                                                                       exposure_basis = y)} ) %>% 
+                                        mutate(outcome = out_name)
+                                      # return lagged estimate
+                                      return(lagged_estimates)      
+                                    })  %>% # end outcome estimates
+  # bind rows
+  map_dfr(., rbind)
+# stop time
+stop_time <- Sys.time() - start_time
+
+```
+
+Check this to make sure it works.
+
+```{r}
+cumulative <- mort_dl_pm_int_results %>% 
+  filter(type == "cumulative" & strata == "pm_smk_basis")
+
+
+
+# plot results
+death_plot <- ggplot(cumulative, aes(x=time, y=odds_ratio)) +
+  geom_line(colour = "black", size = 1) +
+  geom_ribbon(aes(ymin = lower_95, ymax = upper_95), 
+              fill = "grey", alpha = 0.5) + 
+  scale_x_continuous(breaks = c(seq(0,7, by=1))) +
+  geom_hline(yintercept = 1, linetype = 2, colour = "black") +
+  # adding facet wrap to estimate for each outcome
+  facet_wrap(~ outcome, scales = "free_y") +
+  ylab(expression("Odds Ratio: 10 ug/m^3 increase PM2.5")) +
+  xlab("Lagged Days") +
+  ggtitle("Risk of Hospitalization for a 10 ug/m") +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_line(linetype = "dotted"),
+        panel.grid.minor = element_blank()) +
+  theme_minimal()
+
+death_plot
+```
+

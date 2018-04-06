@@ -1,0 +1,189 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r}
+library(tidyverse)
+library(sf)
+```
+
+Attempting to use High Park Fire in Larimer county as an example.
+
+```{r}
+# read county sf
+larimer_boulder_county_sf <- st_read(dsn = "../../data/shapefiles/us_county/") %>% 
+  filter(STATEFP == "08" & COUNTYFP %in% c("069", "013")) %>% 
+  mutate(fips = paste0(STATEFP, COUNTYFP))
+
+# extract crs
+wgs84 <- st_crs(larimer_boulder_county_sf)
+
+# read grid and filter to larimer grid
+grid_sf <- st_read(dsn = "../../data/shapefiles/co_krig_grid/") %>% 
+  filter(COLX %in% 123:129) %>% 
+  filter(ROWY %in% 102:110)
+# assign wgs84
+st_crs(grid_sf) <- wgs84
+
+ggplot() +
+  geom_sf(data = grid_sf, fill = NA, color = "blue") +
+  geom_sf(data = larimer_boulder_county_sf, fill = NA,  color = "red") +
+  theme_minimal()
+```
+
+Grid intersect to find which grids belong to which counties.
+
+```{r}
+# find county intersects with grid id
+grid_county_key <- st_intersection(larimer_boulder_county_sf, grid_sf) %>% 
+  select(GRID_ID, fips, COLX, ROWY, NAME) %>% 
+  mutate(GRID_ID = as.character(GRID_ID),
+         county_name = as.character(NAME)) %>% 
+  select(-NAME)
+# remove geometry atribute
+st_geometry(grid_county_key) <- NULL
+
+larimer_key <- grid_county_key %>% 
+  filter(ROWY > 104 & county_name == "Larimer")
+
+boulder_key <- grid_county_key %>% 
+  filter(ROWY <= 104 & county_name == "Boulder")
+
+county_key <- bind_rows(larimer_key, boulder_key)
+```
+
+
+Loading grid values to get mean value and standard error for PM~2.5~ values in the grid during the summer.
+
+```{r}
+# read grid pm
+grid_pm <- read_csv("../../data/smoke/1015-grid_pm.csv", 
+                    col_types = "cDdddd") %>% 
+  filter(GRID_ID %in% grid_county_key$GRID_ID) %>% 
+  mutate(pm_diff_grid = pm25_grid - sbg_pm_grid,
+         month = as.factor(lubridate::month(date)), # extract month as factor
+         year = as.factor(lubridate::year(date)), # extract year as factor
+         # month_day
+         day_of_year = as.numeric(format(date, "%j")),
+         season = as.factor(case_when(month %in% c(12, 1, 2) ~ "winter",
+                                      month %in% c(3:5) ~ "spring",
+                                      month %in% c(6:8) ~ "summer",
+                                      month %in% c(9:11)~ "fall")),
+         # set krig values lower than 0 to 0
+         pm25_grid = if_else(pm25_grid < 0, 0, pm25_grid),
+         smk5_g_hms = if_else(pm_diff_grid > 5 & 
+                                month %in% c(4:10) & hms_grid == 1, 1, 0),
+         # transforming pm kriged estimates to a 10 unit increase in pm
+         pm25_g_10u = pm25_grid/10) %>% 
+  # filter to summer of 2012 high park fire dates
+  filter(season %in% c("summer", "fall")) %>% 
+  left_join(county_key, by = "GRID_ID")
+```
+
+Plot of county time series of PM~2.5~ values.
+
+```{r larimer_grid_pm_plot}
+county_avg <- grid_pm %>% 
+  group_by(county_name, day_of_year, year) %>% 
+  summarise(pm25_mu = mean(pm25_grid), pm25_max = max(pm25_grid), 
+            bg_mu = mean(sbg_pm_grid))
+
+
+ggplot(county_avg, aes(x=day_of_year, y=pm25_max, 
+                       group=county_name, color = county_name)) +
+  geom_point(size = 0.2) +
+  facet_wrap(~year) +
+  theme_minimal()
+```
+
+High park fire started on June 9th, 2012 and was 100% contained on June 30, 2012. The PM~2.5~ peaks agree with this I think, showing the highest spike in air pollution probably around June 15th, and then again at the end of the month and in to early July.
+
+HMS grid.
+
+```{r}
+hms_count <- grid_pm %>% 
+  group_by(day_of_year, year) %>% 
+  summarise(n = n(), hms_grid_count = sum(hms_grid)) %>% 
+  mutate(smoke_prop = hms_grid_count/n)
+  
+ggplot(hms_count, aes(x=day_of_year, y=smoke_prop)) +
+  geom_point() +
+  facet_wrap(~year)
+```
+
+Interested in outcomes counts during this time for Larimer.
+
+```{r cvd_resp_mortality}
+# load casecross  mortality list
+load("../../data/health/co_mortality_cc_list.RData") 
+# load icd10 outcome list
+load("../../data/health/icd10_outcome.RData")
+
+# co cvd and resp mortaility
+co_death_list <- casecross_list[c(1,4)]
+
+# removing casecross_list to save memeory
+rm(casecross_list)
+```
+
+Loading morbidity data.
+
+```{r resp_cvd_morbidity}
+# load casecross list
+load("../../data/health/1015-co_morbidity_casecross_list.RData")
+# load icd9
+load("../..//data/health/icd9_outcome_vectors.RData")
+
+# co hosp list
+co_hosp_list <- co_morbidity_cc_list[c(1,6)]
+
+# removing 
+rm(co_morbidity_cc_list)
+```
+
+```{r mortality_rate}
+# read in county population denominators for colorado
+county_pop <- read_csv("../../data/health/2016-colorado_population.csv") %>% 
+  rename(fips = GEO.id2) %>% 
+  select(fips, respop72010:respop72015) %>% 
+  filter(fips %in% c("08069","08013")) %>% 
+  gather(year, population, -fips) %>% 
+  mutate(year = as.numeric(str_sub(year, start = 8)))
+
+# assign death outcome
+death_outcome <- names(co_death_list)
+
+# time series of weekly death and rate for cardiovascular and respiratory
+death_ts <- map2(.x = co_death_list,  .y = death_outcome, 
+                 ~ filter(.x, outcome == 1 & fips %in% c("08069","08013")) %>% 
+                   mutate(date = as.Date(as.character(date_of_death)),
+                          week = floor_date(date, unit = "week")) %>% 
+                   group_by(week, fips) %>% 
+                   summarise(n = n()) %>% 
+                   left_join(county_names, by = "fips") %>% 
+                   mutate(year = year(week),
+                          month = as.factor(lubridate::month(week)), 
+                          day_of_year = as.numeric(format(week, "%j")),
+                season = as.factor(case_when(month %in% c(12, 1, 2) ~ "winter",
+                                      month %in% c(3:5) ~ "spring",
+                                      month %in% c(6:8) ~ "summer",
+                                      month %in% c(9:11)~ "fall")),
+                          outcome = .y) %>% 
+                   left_join(county_pop, by = c("fips", "year")) %>% 
+                   mutate(rate_per_100k = (n/population)*100000) %>% 
+                   filter(week >= "2010-01-01" & week <= "2015-12-31")) %>% 
+  map_dfr(., rbind)
+```
+
+Summer fall death plot.
+
+```{r}
+sum_fall_death_ts <- death_ts
+glimpse(death_ts)
+```
+
+
+Now I'm interested in both Boulder County during the Four-Mile Canyon Fire and health outcomes.
