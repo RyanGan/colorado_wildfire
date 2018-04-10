@@ -156,6 +156,7 @@ county_pop <- read_csv("../../data/health/2016-colorado_population.csv") %>%
 # assign death outcome
 death_outcome <- names(co_death_list)
 
+
 # time series of weekly death and rate for cardiovascular and respiratory
 death_ts <- map2(.x = co_death_list,  .y = death_outcome, 
                  ~ filter(.x, outcome == 1 & fips %in% c("08069","08013")) %>% 
@@ -165,7 +166,7 @@ death_ts <- map2(.x = co_death_list,  .y = death_outcome,
                    summarise(n = n()) %>% 
                    left_join(county_names, by = "fips") %>% 
                    mutate(year = year(week),
-                          month = as.factor(lubridate::month(week)), 
+                          month = lubridate::month(week), 
                           day_of_year = as.numeric(format(week, "%j")),
                 season = as.factor(case_when(month %in% c(12, 1, 2) ~ "winter",
                                       month %in% c(3:5) ~ "spring",
@@ -181,9 +182,41 @@ death_ts <- map2(.x = co_death_list,  .y = death_outcome,
 Summer fall death plot.
 
 ```{r}
-sum_fall_death_ts <- death_ts
-glimpse(death_ts)
+sum_fall_death_ts <- death_ts %>% 
+  filter(season %in% c("summer", "fall")) %>% 
+  filter(outcome == "cvd")
+
+ggplot(sum_fall_death_ts, aes(x=day_of_year, y=rate_per_100k, 
+                       group=county_name, color = county_name)) +
+  geom_point(size = 0.2) +
+  facet_wrap(~year) +
+  theme_minimal()
 ```
+
+Larimer county case-cross association.
+
+```{r}
+# load grid id key
+grid_key <- read_csv("../../data/shapefiles/wrfgrid_key.csv", 
+                     col_types = cols(.default = "d", GRID_ID = "c", 
+                                      WRFGRID_ID = "c")) %>% 
+  select(GRID_ID, WRFGRID_ID)
+
+
+resp_deaths_larimer <- co_death_list$resp %>% 
+  filter(fips == "08069") %>% 
+  mutate(outcome = as.numeric(as.character(outcome)),
+         date = as.Date(as.character(date_of_death)),
+         WRFGRID_ID = as.character(wrfgrid_id)) %>% 
+  filter(date > "2012-06-01" & date < "2012-09-01") %>% 
+  left_join(grid_key, by = "WRFGRID_ID") %>% 
+  left_join(grid_pm, by = c("date", "GRID_ID"))
+
+
+mod <- clogit(outcome ~ pm25_g_10u*hms_grid + strata(id), data = resp_deaths_larimer)
+summary(mod)
+```
+
 
 
 Now I'm interested in both Boulder County during the Four-Mile Canyon Fire and health outcomes.
