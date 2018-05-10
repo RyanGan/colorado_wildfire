@@ -1,0 +1,95 @@
+---
+title: "WRF grid to FRAPPE Grid"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+R notebook that reduces Colorado WRF grid size to FRAPPE extent.
+
+```{r load_library}
+library(tidyverse)
+library(sf)
+```
+
+Read in Colorado WRF grid and the coordinates Wande sent me.
+
+```{r read_files}
+# wrf grid
+wrfgrid <- st_read(dsn = "../../data/shapefiles/wrf_grid/",
+                   layer = "wrf_grid")
+# coordinates
+frappe_coord <- read_delim("../../data/shapefiles/CO_3k_latlong.txt", 
+                           delim = " ")
+```
+
+Bounding box of WRF grid shapefile.
+```{r wrf_bbox}
+st_bbox(wrfgrid)
+```
+
+Extent of Wande's coordinates.
+
+```{r coord_extent}
+# min
+c(min(frappe_coord[,1]), min(frappe_coord[,2]))
+# max
+c(max(frappe_coord[,1]), max(frappe_coord[,2]))
+```
+
+I want to retain the WRFGRID IDs as well as the coordinates. Using custom clip function of simple feature.
+
+```{r clip_function}
+bbox_clip <- function(sf, bbox) {
+  # find the CRS of the sf object
+  crs <- sf::st_crs(sf)$proj4string
+  # create matrix
+  x <- c(bbox[1], bbox[1], bbox[3], bbox[3], bbox[1])
+  y <- c(bbox[2], bbox[4], bbox[4], bbox[2], bbox[2])
+  coords <- matrix(cbind(x, y), ncol=2)
+  # create polygon and assign same coord crs as sf object
+  coords_poly <- sp::Polygon(coords)
+  bbox_poly <- sp:: SpatialPolygons(list(sp::Polygons(list(coords_poly),
+    ID = "bbox")), proj4string = sp::CRS(crs))
+  # convert to sf feature
+  bbox_sf <- st_as_sf(bbox_poly)
+  # clip sf object
+  clipped_sf <- sf[bbox_sf,]
+  return(clipped_sf)
+}
+```
+
+Define new bounding box based on coordinates Emily provided.
+
+```{r new_bbox}
+# new bbox
+frappe_bbox <- c(-109.2346, 38.3687, -101.3326, 41.22053)
+# new grid
+new_grid <- bbox_clip(wrfgrid, frappe_bbox)
+```
+
+Build coordinate matrix with WRFGRID ID. 
+
+```{r extract_coords}
+# new coordinates
+new_coords <- st_coordinates(st_centroid(new_grid))
+# wrfgrid id vector
+new_wrfid <- new_grid$WRFGRID_ID
+# frapp grid
+frappe_grid <- data.frame(new_wrfid, new_coords) %>% 
+  rename(WRFGRID_ID = new_wrfid, long = X, lat = Y)
+
+# check new grid
+ggplot(frappe_grid, aes(x=long,y=lat)) +
+  geom_point(color = "red", size = 0.1) +
+  geom_point(data=frappe_coord, aes(x=long,y=lat), color = "blue", size = 0.1,
+             alpha = 0.2) +
+  theme_minimal()
+```
+
+Write file for Emily.
+
+```{r frappe_grid_csv}
+write_csv(frappe_grid, "../../data/shapefiles/frappe_grid.csv")
+```
+
