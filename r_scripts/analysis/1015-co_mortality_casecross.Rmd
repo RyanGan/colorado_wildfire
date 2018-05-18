@@ -29,6 +29,7 @@ library(splines) # splines
 library(lubridate) # works with dates
 library(broom)
 library(stringr)
+library(dlnm)
 ```
 
 ## PM~2.5~ Data
@@ -46,6 +47,14 @@ funlag <- function(var, n=6){
     set_names(sprintf("%s_lag%d", rlang::quo_text(var), indices))
 }
 ```
+
+Setting up front-range counties only due to model performance being best where most people live.
+
+```{r fr_fips}
+fr_fips <- c("08001", "08005", "08013", "08014", "08031", "08035", "08041",
+             "08059", "08069", "08123")
+```
+
 
 Importing county-level PM~2.5~ from csv file. I'm limiting to Colorado, creating binary smoke classifiers, and then creating lagged functions. These data are located in the meta_wildfire repo. Defining the relative path from my current working directory to those data.
 ```{r pm_import, message=FALSE, warning=FALSE}
@@ -79,9 +88,9 @@ pm <- read_csv(paste0("../../../meta_wildfire/data/smoke/",
   # group by fips 
   group_by(fips) %>%
   # apply funlag to create lagged estimates
-  mutate(., !!!funlag(pm,6), !!!funlag(smoke0_hms,6), !!!funlag(smoke5_hms,6),
-         !!!funlag(smoke10_hms,6), !!!funlag(smoke15_hms,6), 
-         !!!funlag(temp_f, 6)) %>% 
+  mutate(., !!!funlag(pm,3), !!!funlag(smoke0_hms,3), !!!funlag(smoke5_hms,3),
+         !!!funlag(smoke10_hms,3), !!!funlag(smoke15_hms,3), 
+         !!!funlag(temp_f, 3)) %>% 
   select(-state, -month) # removing state and month to bind with casecross
 ```
 
@@ -136,7 +145,8 @@ co_cc_list <- casecross_list %>%
                month = as.factor(lubridate::month(date))) %>% 
       # filter out 2016; I don't have pm data yet
       filter(date <= "2015-12-30") %>% 
-      filter(month %in% 4:10) %>% 
+      filter(month %in% 6:8) %>% 
+      filter(fips %in% fr_fips) %>% 
       left_join(pm, by = c("fips", "date"))) %>% 
   # add outcome name to each dataframe
   map2(.x = ., .y = outcomes, ~mutate(.x, out_name = .y))
@@ -260,7 +270,7 @@ data <- co_cc_list[[1]] %>%
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(pm_lag6))
+    filter(!is.na(pm_lag3))
 ```
 
 Creating lagged PM~2.5~ matrix and temperature in F matrix. Using the complete data created in the step above, I extract the lagged matrices for PM~2.5~ and temperature. Printing out first 6 observations of PM lagged matrix for the case-crossover dataframe.
@@ -275,7 +285,7 @@ head(pm_mat)
 Next I need to define my exposure basis. Here I'm using a natural spline (ns) that is 0 to 6 to create a 7 column basis. Columns here must match the number of columns in the exposure matrix. I've given it 3 degrees of freedom and included the intercept. This will create a 7x3 matrix.
 ```{r exp_basis}
 # define lagged basis spline
-exp_b <- ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
+exp_b <- ns(0:(ncol(pm_mat)-1), df = 2, intercept = T)
 # printing exposure basis
 exp_b
 ```
@@ -343,7 +353,7 @@ mort_dl_pm_results  <- lapply(co_cc_list, function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(pm_lag6))
+    filter(!is.na(pm_lag3))
   # output outcome name
   out_name <- as.character(unique(data$out_name))
   # print(out_name) # track which outcome dataframe it's on
@@ -351,7 +361,7 @@ mort_dl_pm_results  <- lapply(co_cc_list, function(x){
   pm_mat <- as.matrix(select(data, pm, contains("pm_lag")))
   temp_mat <- as.matrix(select(data, contains("temp_f")))
   # define lagged basis spline
-  exp_b <- ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
+  exp_b <- ns(0:(ncol(pm_mat)-1), df = 2, intercept = T)
   # pm basis
   pm_basis <- pm_mat %*% exp_b
   # temp basis
@@ -404,7 +414,7 @@ data <- co_cc_list[[1]] %>%
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(pm_lag6))
+    filter(!is.na(pm_lag3))
 
 # create lagged matrix
 pm_mat <- as.matrix(select(data, pm, contains("pm_lag")))
@@ -485,10 +495,121 @@ The two PM plots are the odds ratio for a 10 ug/m^3^ increase for PM~2.5~ withou
 
 These analyses can be scaled up to run for multiple outcomes or in parallel if the compuations take a bit. 
 
+## Using the DLNM package
+
+Set up cross-basis for PM2.5 for respiratory mortality.
+```{r dlnm}
+# create lagged matrix
+pm_mat <- as.matrix(select(data, pm, contains("pm_lag")))
+temp_mat <- as.matrix(select(data, contains("temp_f")))
+
+# crossbasis of pm
+cb_pm <- crossbasis(pm_mat, argvar = list(fun="ns", df = 2), lag = 3, 
+                    arglag = list(fun="ns", knots = 2, intercept = T))
+
+# temp cv
+cb_temp <- crossbasis(temp_mat, argvar = list(fun="ns", df = 2), lag = 3, 
+                    arglag = list(fun="ns", knots = 2, intercept = T))
+```
+
+Conditional logistic model.
+
+```{r}
+
+# clogit model
+resp_dl_mod <- clogit(outcome ~ cb_pm + temp_f + strata(id), data = data)
+BIC(resp_dl_mod)
+```
+
+Cross-prediction.
+
+```{r}
+# cross-basis prediction 
+cb_pred <- crosspred(basis = cb_pm, model = resp_dl_mod, cen = .5, 
+                     at = seq(1, 2.5, .5))
+```
+
+Cumulative effect at each PM level.
+```{r}
+cumulative_plot <- tibble(cb_pred$predvar, cb_pred$allRRfit, cb_pred$allRRlow,
+                          cb_pred$allRRhigh)
+# col names
+names(cumulative_plot) <- c("pm_var", "odds_ratio", "lower95", "upper95")
+
+cumulative_plot <- mutate(cumulative_plot, pm_var = pm_var*10)
+
+ggplot(data=cumulative_plot, aes(x=pm_var, y=odds_ratio)) +
+    geom_point(color = "blue") + 
+    geom_errorbar(aes(ymin=lower95, ymax=upper95), color = "blue", size = 0.3) +
+    geom_hline(yintercept = 1, linetype=2) +
+    ylab("Odds Ratio") +
+    xlab("PM2.5 ug/m^3") +
+    ggtitle("Respiratory Cumulative Effect by PM2.5 Level") +
+    theme_minimal()
+```
+
+Map.
+
+```{r}
+# distributed lag function
+mort_dlnm_results  <- lapply(co_cc_list, function(x){
+  # output dataframe from list
+  data <- x %>% 
+    mutate(date = as.Date(date),
+           outcome = as.numeric(as.character(outcome))) %>%
+    # remove missing lagged data
+    filter(!is.na(pm_lag3))
+  # output outcome name
+  out_name <- as.character(unique(data$out_name))
+  # print(out_name) # track which outcome dataframe it's on
+  # create lagged matrix
+  pm_mat <- as.matrix(select(data, pm, contains("pm_lag")))
+  temp_mat <- as.matrix(select(data, contains("temp_f")))
+  # crossbasis of pm
+  cb_pm <- crossbasis(pm_mat, argvar = list(fun="ns", df = 2), lag = 3, 
+                    arglag = list(fun="ns", knots = 2, intercept = T))
+  # temp cb
+  cb_temp <- crossbasis(temp_mat, argvar = list(fun="ns", df = 2), lag = 3, 
+                    arglag = list(fun="ns", knots = 2, intercept = T))
+  # run lagged model
+  lag_mod <- clogit(outcome ~ cb_pm + cb_temp + strata(id), data = data)
+  # cross-predict
+  # cross-basis prediction 
+  cb_pred <- crosspred(basis = cb_pm, model = lag_mod, cen = .5, 
+                     at = seq(1, 2, .1))
+  # cumulative results
+  cumulative_results <- tibble(cb_pred$predvar, cb_pred$allRRfit, 
+                               cb_pred$allRRlow, cb_pred$allRRhigh)
+  # col names
+  names(cumulative_results) <- c("pm_var", "odds_ratio", "lower95", "upper95")
+  # final estimate
+  cumulative_results <- cumulative_results %>% 
+    mutate(outcome = out_name,
+           pm_level = pm_var*10) %>% 
+    select(outcome, pm_level, odds_ratio:upper95)
+  return(cumulative_results)
+  }) %>%  #end lappply
+  # bind rows
+  map_dfr(.,rbind)
+
+head(mort_dlnm_results)
+```
+
+Plot
+
+```{r}
+ggplot(data=mort_dlnm_results, aes(x=pm_level, y=odds_ratio)) +
+    geom_line(color = "blue") + 
+    geom_ribbon(aes(ymin=lower95, ymax=upper95), fill = "blue", alpha = 0.3) +
+    geom_hline(yintercept = 1, linetype=2) +
+    facet_wrap(~outcome, scales = "free_y") +
+    ylab("Odds Ratio") +
+    xlab("PM2.5 ug/m^3") +
+    ggtitle("Respiratory Cumulative Effect by PM2.5 Level") +
+    theme_minimal()
+```
+
+
 ## Next Steps
 
-- I could create an R package to be shared with Rish to make this whole process easier. I could write out the functions created here to be part of a package so it's easier to read.
-
-- I am going to talk with Ander about interpreting these data to make sure I'm on the right path. If you have discussions with Antonio, see if he'd agree with this approach.
-
-- I'm going to run these same analyses, assigning PM at the Zip level and grid level. I will also consider restricting analyzes to front range areas where Jeff thinks the kriged surfaces are more accurate (which would exclude a lot of rural counties).
+- It looks like the GRID id is not correct for the mortality data. This could be because it was assigned wrong when geocoding was taking place? Anyways, I'm going to stick with county for now.

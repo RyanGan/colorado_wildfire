@@ -63,7 +63,7 @@ Define new bounding box based on coordinates Emily provided.
 
 ```{r new_bbox}
 # new bbox
-frappe_bbox <- c(-109.2346, 38.3687, -101.3326, 41.22053)
+frappe_bbox <- c(-106, 38.3687, -101.3326, 41.22053)
 # new grid
 new_grid <- bbox_clip(wrfgrid, frappe_bbox)
 ```
@@ -71,16 +71,24 @@ new_grid <- bbox_clip(wrfgrid, frappe_bbox)
 Build coordinate matrix with WRFGRID ID. 
 
 ```{r extract_coords}
-# new coordinates
-new_coords <- st_coordinates(st_centroid(new_grid))
+# convert geometry of new coords to a list
+geo_list <- st_geometry(new_grid) %>% as.list()
+# extract nw coords from each grid
+nw_coords <- lapply(geo_list, function(x){
+        nw_lon = unlist(st_geometry(x))[2]
+        nw_lat = unlist(st_geometry(x))[7]
+        data = data.frame(nw_lon, nw_lat)
+  }) %>% 
+  do.call(rbind, .)
+
 # wrfgrid id vector
 new_wrfid <- new_grid$WRFGRID_ID
 # frapp grid
-frappe_grid <- data.frame(new_wrfid, new_coords) %>% 
-  rename(WRFGRID_ID = new_wrfid, long = X, lat = Y)
+frappe_grid <- data.frame(new_wrfid, nw_coords) %>% 
+  rename(WRFGRID_ID = new_wrfid)
 
 # check new grid
-ggplot(frappe_grid, aes(x=long,y=lat)) +
+ggplot(frappe_grid, aes(x=nw_lon,y=nw_lat)) +
   geom_point(color = "red", size = 0.1) +
   geom_point(data=frappe_coord, aes(x=long,y=lat), color = "blue", size = 0.1,
              alpha = 0.2) +
