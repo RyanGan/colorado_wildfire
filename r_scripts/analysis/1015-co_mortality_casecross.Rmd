@@ -609,7 +609,6 @@ ggplot(data=mort_dlnm_results, aes(x=pm_level, y=odds_ratio)) +
     theme_minimal()
 ```
 
-
 ## Next Steps
 
 - It looks like the GRID id is not correct for the mortality data. This could be because it was assigned wrong when geocoding was taking place? Anyways, I'm going to stick with county for now.
