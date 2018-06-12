@@ -1,0 +1,73 @@
+---
+title: "Time-series analysis"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Introduction
+
+Estimating cardiopulmonary morbity and mortality for Colorado front range counties.
+
+
+```{r library}
+library(tidyverse)
+
+# knitr options
+knitr::opts_chunk$set(fig.width=8, fig.height=6, 
+                      warning=FALSE, message=FALSE)
+```
+
+Importing PM2.5 time series data and limiting to front range counties.
+
+```{r import_data}
+# front range fips
+fr_fips <- c("08001", "08005", "08013", "08031", "08035", "08041",
+             "08059", "08069", "08123")
+
+# read pm data 
+co_pm <- read_csv('../data/smoke/1015-county_popwt_pm.csv') %>% 
+  filter(fips %in% fr_fips)
+
+# morbidity
+co_morbidity <- read_csv('../data/health/1015-morbidity_pm_ts.csv') %>% 
+  filter(fips %in% fr_fips) 
+
+# output fips populations by year
+fips_pop <- co_morbidity %>% 
+  group_by(fips, county, year, state) %>%
+  summarise(population = max(population))
+
+# mortality counts
+co_mortality <- read_csv('../data/health/2010-2016_mortality_co_ts.csv') %>% 
+  rename(date = date_of_death,
+         fips = FIPS) %>% 
+  filter(date < '2016-01-01') %>% 
+  right_join(co_pm, by = c('fips', 'date')) %>% 
+  # fill missing deaths with 0s
+  mutate_at(vars(obs:asthma), funs(replace_na(., replace = 0))) %>% 
+  left_join(fips_pop, by = c('fips', 'year'))
+```
+
+Plot of PM2.5 series.
+
+```{r pm_ts_plot}
+pm_plot <- ggplot(data=co_pm, aes(x=date, y=pm_krig)) +
+  geom_point(size = 1) +
+  facet_wrap(~fips)
+
+pm_plot
+
+xtabs(~fips, co_pm)
+xtabs(~fips, co_mortality)
+xtabs(~fips, co_morbidity)
+```
+
+```{r all_cause_death_plot}
+death_plot <- ggplot(co_mortality, aes(x=date, y=(all_cause/population)*100000)) +
+  geom_point(size = 0.5) +
+  facet_wrap(~fips)
+
+death_plot
+```
+
