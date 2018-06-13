@@ -28,6 +28,7 @@ library(lubridate) # works with dates
 library(broom) # tidy model output
 library(stringr) # tidy strings
 library(sf) # tidy simple features 
+library(dlnm)
 
 # knitr options
 knitr::opts_chunk$set(fig.width=8, fig.height=6, quite = T, message = F)
@@ -224,7 +225,7 @@ Setting up funlag function to create lagged datastructures.
 
 ```{r funlag}
 # defining a lag function
-funlag <- function(var, n=6){
+funlag <- function(var, n=5){
   var <- enquo(var)
   indices <- seq_len(n)
   map( indices, ~quo(lag(!!var, !!.x)) ) %>% 
@@ -265,10 +266,6 @@ grid_pm <- read_csv("../../data/smoke/1015-grid_pm.csv",
   select(-c(month, year)) %>% 
   ungroup()
 ```
-
-### Zip Exposure
-
-Spot for zip exposure when Jingyang finishes.
 
 ### County Exposure
 
@@ -366,8 +363,10 @@ load("../../data/health/co_mortality_cc_list.RData")
 # load icd10 outcome list
 load("../../data/health/icd10_outcome.RData")
 
+# full list
+co_mortality_list <- casecross_list
 # co cvd and resp mortaility
-co_death_list <- casecross_list[c(1,4)]
+co_resp_cvd_death_list <- co_mortality_list[c(1,4)] 
 
 # removing casecross_list to save memeory
 rm(casecross_list)
@@ -379,10 +378,12 @@ Loading morbidity data.
 # load casecross list
 load("../../data/health/1015-co_morbidity_casecross_list.RData")
 # load icd9
-load("../..//data/health/icd9_outcome_vectors.RData")
+load("../../data/health/icd9_outcome_vectors.RData")
 
-# co hosp list
-co_hosp_list <- co_morbidity_cc_list[c(1,6)]
+# full list
+co_hosp_list <- co_morbidity_cc_list
+# co resp cvd hosp list
+co_resp_cvd_hosp_list <- co_morbidity_cc_list[c(1,6)]
 
 # removing 
 rm(co_morbidity_cc_list)
@@ -405,10 +406,10 @@ county_pop <- read_csv("../../data/health/2016-colorado_population.csv") %>%
   mutate(year = as.numeric(str_sub(year, start = 8)))
 
 # assign death outcome
-death_outcome <- names(co_death_list)
+death_outcome <- names(co_resp_cvd_death_list)
 
 # time series of weekly death and rate for cardiovascular and respiratory
-death_ts <- map2(.x = co_death_list,  .y = death_outcome, 
+death_ts <- map2(.x = co_resp_cvd_death_list,  .y = death_outcome, 
                  ~ filter(.x, outcome == 1 & fips %in% front_range_fips) %>% 
                    mutate(date = as.Date(as.character(date_of_death)),
                           week = floor_date(date, unit = "week")) %>% 
@@ -427,9 +428,9 @@ Morbidity weekly count time series.
 
 ```{r hosp_rate}
 # hosp_names
-hosp_outcome <- names(co_hosp_list)
+hosp_outcome <- names(co_resp_cvd_hosp_list)
 # time series of weekly death and rate for cardiovascular and respiratory
-hosp_ts <- map2(.x = co_hosp_list,  .y = hosp_outcome, 
+hosp_ts <- map2(.x = co_resp_cvd_hosp_list,  .y = hosp_outcome, 
                  ~ filter(.x, outcome == 1 & fips %in% front_range_fips) %>% 
                    mutate(date = as.Date(as.character(date)),
                           week = floor_date(date, unit = "week")) %>% 
@@ -474,15 +475,17 @@ ggplot(fr_ts, aes(x = week, y = rate_per_100k)) +
 
 There is a peak in mortality and morbidity for respiratory at the end of 2014 start of 2015. I believe this is likely associated with the influenza season that was bad that year. Seasonal analysis may be interesting rather than just warm months.
 
-This plot needs work too. I also want to add a outcome numbers for the months included in the analyses tables.
+This plot needs work too. I also want to add a outcome numbers for the months included in the analyses tables. Also note that hospitalizations end at the end of September 2015 as this is when the nationwide switch from ICD9 to ICD10 occured.
 
 ### Joining PM~2.5~ Estimates
 
 Joining with PM~2.5~ data and also limiting to front range counties. I'm also limiting to summer (June through August).
 
 ```{r death_pm_join}
+# assign death outcome
+death_outcome <- names(co_mortality_list)
 # assign outcome names to each dataframe in list
-co_death_list_pm <- co_death_list %>% 
+co_death_list_pm <- co_mortality_list %>% 
   # for some variables in the casecross dfs, I need to convert to character, then
   # desired format to make sure it's right
   map(~ mutate(., outcome = as.numeric(as.character(outcome)),
@@ -497,9 +500,190 @@ co_death_list_pm <- co_death_list %>%
       select(-wrfgrid_id) %>% 
       left_join(grid_key, by = "WRFGRID_ID") %>% 
       left_join(grid_pm, by = c("GRID_ID", "date")) %>% 
-      left_join(county_pm, by = c("fips", "date"))) %>% 
+      left_join(county_pm, by = c("fips", "date")) %>% 
+      mutate(grid_pm_miss = ifelse(is.na(pm25_grid), 1, 0),
+        cty_pm_miss = ifelse(is.na(pm25_c_10u),1, 0))) %>% 
   # add outcome name to each dataframe
   map2(.x = ., .y = death_outcome, ~mutate(.x, out_name = .y)) 
+```
+
+Summary of counts and missing PM2.5 values.
+
+```{r death_sum_of_missing}
+# estimate deaths 
+death_counts <- co_death_list_pm %>% 
+  map_dfr(. , function(df){
+    counts <- df %>% 
+      filter(outcome == 1) %>% 
+      group_by(out_name) %>% 
+      summarise(n_events = n(), n_pm_g_miss = sum(grid_pm_miss), 
+                n_pm_c_miss = sum(cty_pm_miss)) %>% 
+      mutate(perc_grid_miss = (n_pm_g_miss/n_events)*100)
+    })
+# print death counts
+death_counts
+```
+
+```{r hosp_pm_join}
+# assign death outcome
+hosp_outcome <- names(co_hosp_list)
+
+# assign outcome names to each dataframe in list
+co_hosp_list_pm <- co_hosp_list %>% 
+  # for some variables in the casecross dfs, I need to convert to character, then
+  # desired format to make sure it's right
+  map(~ mutate(., outcome = as.numeric(as.character(outcome)),
+               date = as.Date(as.character(date)),
+               month = as.factor(lubridate::month(date))) %>%
+      # filter out 2016; I don't have pm data yet
+      filter(date <= "2015-12-30") %>% 
+      # filter to front range
+      filter(fips %in% front_range_fips) %>% 
+      # remove vars to prevent duplicates
+      left_join(grid_key, by = "WRFGRID_ID") %>% 
+      left_join(grid_pm, by = c("GRID_ID", "date")) %>% 
+      left_join(county_pm, by = c("fips", "date")) %>% 
+      mutate(grid_pm_miss = ifelse(is.na(pm25_grid), 1, 0),
+        cty_pm_miss = ifelse(is.na(pm25_c_10u),1, 0))) %>% 
+  # add outcome name to each dataframe
+  map2(.x = ., .y = hosp_outcome, ~mutate(.x, out_name = .y)) 
+
+# remove co_hosp_list to save space
+rm(co_hosp_list)
+```
+
+Counts of inpatient hosptial events and missing PM2.5
+```{r hosp_summary}
+# estimate deaths 
+hosp_counts <- co_hosp_list_pm %>% 
+  map_dfr(. , function(df){
+    counts <- df %>% 
+      filter(outcome == 1) %>% 
+      group_by(out_name) %>% 
+      summarise(n_events = n(), n_pm_g_miss = sum(grid_pm_miss), 
+                n_pm_c_miss = sum(cty_pm_miss)) %>% 
+      mutate(perc_grid_miss = (n_pm_g_miss/n_events)*100)
+    })
+# print death counts
+hosp_counts
+```
+
+## Mortality and PM~2.5~ Association
+
+Same day associations not considering season.
+
+```{r death_same_day}
+death_outcome2 <- rep(death_outcome, each = 4)
+# distributed lag function
+death_same_day_grid <- co_death_list_pm %>% 
+  map_dfr(. , function(df){
+    # attempt a split to do seasonal analyses
+    season_list <- df %>% split(.$season)
+    season <- names(season_list)
+    # run second map
+    season_results <- map_dfr(season_list, function(df2){
+    mod <- clogit(outcome ~ pm25_g_10u + temp_f_grid + strata(id), data = df2)
+    est <- broom::tidy(mod) %>% filter(term == "pm25_g_10u") %>% 
+      select(estimate, conf.low, conf.high) %>% 
+      rename(lower95 = conf.low, upper95 = conf.high) %>% 
+      mutate_all(exp)
+    }) %>% cbind(season, .)
+  }) %>% # end map
+    # add outcome name to each dataframe
+  cbind(death_outcome2, .) %>% 
+  mutate(season = factor(season, 
+                         levels = c('spring', 'summer','fall', 'winter')))
+
+# print results
+print(death_same_day_grid)
+```
+
+Same day death plot.
+
+```{r death_results}
+ggplot(data=death_same_day_grid, aes(x=season, y=estimate, color=season)) +
+  geom_point() + 
+  geom_errorbar(aes(ymin=lower95, ymax=upper95),width = 0.2) +
+  geom_hline(yintercept = 1, linetype=2) +
+  facet_wrap(~death_outcome2, scales = 'free_y') +
+  ylab(expression(paste("Odds Ratio for 10µg/m"^3, " Increase in PM"[2.5]))) +
+  xlab("Season") +
+  ggtitle("Mortality by Season") +
+   # plot theme
+    theme(panel.background = element_rect(fill = 'white', colour = 'black'),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    # strip element
+    strip.background = element_rect(colour=NA, fill=NA),
+    panel.border = element_rect(fill = NA, color = "black"),
+    # facet text size
+    strip.text = element_text(size = 10),
+    # axis element (tilt)
+    axis.text.x = element_text(angle = 45, hjust =1),
+    #axis.title.x = element_blank(),
+    #axis.ticks.x = element_blank(),
+    axis.title.y = element_text(angle = 90))
+
+```
+
+
+## Inpatient Hospitalization and PM~2.5~ Association
+
+Same day associations not considering season.
+
+```{r hosp_same_day}
+hosp_outcome2 <- rep(hosp_outcome, each = 4)
+# distributed lag function
+hosp_same_day_grid <- co_hosp_list_pm %>% 
+  map_dfr(. , function(df){
+    # attempt a split to do seasonal analyses
+    season_list <- df %>% split(.$season)
+    season <- names(season_list)
+    # run second map
+    season_results <- map_dfr(season_list, function(df2){
+    mod <- clogit(outcome ~ pm25_g_10u + temp_f_grid + strata(id), data = df2)
+    est <- broom::tidy(mod) %>% filter(term == "pm25_g_10u") %>% 
+      select(estimate, conf.low, conf.high) %>% 
+      rename(lower95 = conf.low, upper95 = conf.high) %>% 
+      mutate_all(exp)
+    }) %>% cbind(season, .)
+  }) %>% # end map
+    # add outcome name to each dataframe
+  cbind(hosp_outcome2, .) %>% 
+  mutate(season = factor(season, 
+                         levels = c('spring', 'summer','fall', 'winter')))
+
+# print results
+print(hosp_same_day_grid)
+```
+
+Same day hospital plot.
+
+```{r hosp_results, fig.height=6, fig.width=6}
+hosp_plot <- ggplot(data=hosp_same_day_grid, aes(x=season, y=estimate, color=season)) +
+  geom_point() + 
+  geom_errorbar(aes(ymin=lower95, ymax=upper95),width = 0.2) +
+  geom_hline(yintercept = 1, linetype=2) +
+  facet_wrap(~hosp_outcome2, scales = 'free_y', ncol = 3) +
+  ylab(expression(paste("Odds Ratio for 10µg/m"^3, " Increase in PM"[2.5]))) +
+  xlab("Season") +
+  ggtitle("Inpatient Hospitalization") +
+   # plot theme
+    theme(panel.background = element_rect(fill = 'white', colour = 'black'),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    # strip element
+    strip.background = element_rect(colour=NA, fill=NA),
+    panel.border = element_rect(fill = NA, color = "black"),
+    # facet text size
+    strip.text = element_text(size = 10),
+    # axis element (tilt)
+    axis.text.x = element_text(angle = 45, hjust =1),
+    #axis.title.x = element_blank(),
+    #axis.ticks.x = element_blank(),
+    axis.title.y = element_text(angle = 90))
+
+hosp_plot
 ```
 
 ## Distributed Lag
@@ -566,7 +750,8 @@ distribute_that_lag <- function(lag_mod, strata, exposure_basis) {
  } # end lag estimate function
 ```
 
-## Mortality and PM~2.5~ Association
+
+
 
 Model fit of distributed lag spline of PM~2.5~ and temperature.
 

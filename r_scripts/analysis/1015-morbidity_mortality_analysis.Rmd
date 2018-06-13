@@ -7,8 +7,7 @@ editor_options:
 
 # Introduction
 
-Estimating cardiopulmonary morbity and mortality for Colorado front range counties.
-
+Estimating cardiopulmonary morbity and mortality for Colorado front range counties. We have PM estiamtes for all Colorado counties, but there may be a question on accuracy for the krig PM since most PM stations are on the front range. 
 
 ```{r library}
 library(tidyverse)
@@ -20,54 +19,159 @@ knitr::opts_chunk$set(fig.width=8, fig.height=6,
 
 Importing PM2.5 time series data and limiting to front range counties.
 
+```{r}
+# defining a lag function
+funlag <- function(var, n=5){
+  var <- enquo(var)
+  indices <- seq_len(n)
+  map( indices, ~quo(lag(!!var, !!.x)) ) %>% 
+    set_names(sprintf("%s_lag%d", rlang::quo_text(var), indices))
+}
+```
+
+
 ```{r import_data}
 # front range fips
 fr_fips <- c("08001", "08005", "08013", "08031", "08035", "08041",
              "08059", "08069", "08123")
 
 # read pm data 
-co_pm <- read_csv('../data/smoke/1015-county_popwt_pm.csv') %>% 
-  filter(fips %in% fr_fips)
-
-# morbidity
-co_morbidity <- read_csv('../data/health/1015-morbidity_pm_ts.csv') %>% 
-  filter(fips %in% fr_fips) 
-
-# output fips populations by year
-fips_pop <- co_morbidity %>% 
-  group_by(fips, county, year, state) %>%
-  summarise(population = max(population))
-
-# mortality counts
-co_mortality <- read_csv('../data/health/2010-2016_mortality_co_ts.csv') %>% 
-  rename(date = date_of_death,
-         fips = FIPS) %>% 
-  filter(date < '2016-01-01') %>% 
-  right_join(co_pm, by = c('fips', 'date')) %>% 
-  # fill missing deaths with 0s
-  mutate_at(vars(obs:asthma), funs(replace_na(., replace = 0))) %>% 
-  left_join(fips_pop, by = c('fips', 'year'))
+co_pm <- read_csv('../../data/smoke/1015-county_popwt_pm.csv') %>% 
+  filter(fips %in% fr_fips) %>% 
+  # county name
+  mutate(county_name = case_when(fips == '08001' ~ 'Adams',
+                                 fips == '08005' ~ 'Arapahoe',
+                                 fips == '08013' ~ 'Boulder',
+                                 fips == '08031' ~ 'Denver',
+                                 fips == '08035' ~ 'Douglas',
+                                 fips == '08041' ~ 'El Paso',
+                                 fips == '08059' ~ 'Jefferson',
+                                 fips == '08069' ~ 'Larimer',
+                                 fips == '08123' ~ 'Weld'))
 ```
 
 Plot of PM2.5 series.
 
 ```{r pm_ts_plot}
 pm_plot <- ggplot(data=co_pm, aes(x=date, y=pm_krig)) +
-  geom_point(size = 1) +
-  facet_wrap(~fips)
-
-pm_plot
-
-xtabs(~fips, co_pm)
-xtabs(~fips, co_mortality)
-xtabs(~fips, co_morbidity)
+  geom_point(size = 0.5, color = "blue") +
+  geom_line(aes(x=date, y=bg_pm), color = "red") +
+  facet_wrap(~county_name) +
+  theme_minimal()
+# plot
+print(pm_plot)
 ```
 
-```{r all_cause_death_plot}
-death_plot <- ggplot(co_mortality, aes(x=date, y=(all_cause/population)*100000)) +
-  geom_point(size = 0.5) +
-  facet_wrap(~fips)
+## Hospitalizations and Mortality
+
+I've created time-stratied case-crossover dataframes with reference periods within a month of the observation. The justification for a 'month' period is appropriate for mortality I think, as I think it's reasonable counter factual window in when a person could have died. A longer period like we've previously used like the entire wildfire season may not be as appropriate for mortality for a person who is already at risk of death.
+
+Load mortality case-cross.
+```{r mortality}
+# load casecrossover list -----
+load("../../data/health/co_mortality_cc_list.RData")
+# load mortality outcome list
+load("../../data/health/icd10_outcome.RData")
+```
+
+Limit mortality case-crossover to front range counties and 2010 to 2015.
+
+```{r colorado_mortality_list}
+# extract a vector of outcome names from the icd10 outcomes list 
+outcomes <- names(icd10_outcomes)
+
+# reduce case-crossover list to only summer months and join pm
+co_mortality_list <- casecross_list %>% 
+  # desired format to make sure it's right
+  map(~ mutate(., outcome = as.numeric(as.character(outcome)),
+               date = as.Date(as.character(date_of_death)),
+               month = as.factor(lubridate::month(date))) %>% 
+      # filter out 2016; I don't have pm data yet
+      filter(date <= "2015-12-30") %>% 
+      filter(fips %in% fr_fips)) %>% 
+  # add outcome name to each dataframe
+  map2(.x = ., .y = outcomes, ~mutate(.x, out_name = .y))
+```
+
+Number of events.
+```{r death_counts}
+# estimate deaths 
+death_counts <- co_mortality_list %>% 
+  map_dfr(. , function(df){
+    counts <- df %>% 
+      filter(outcome == 1) %>% 
+      group_by(out_name) %>% 
+      summarise(n_events = n())
+    })
+# print death counts
+death_counts
+```
+
+Time series of events for respiratory and cvd only. I also aggregated across front range counties for sufficient numbers. Looking for any potential time trends that may need to be accounted for.
+
+```{r ts_death_counts}
+# estimate deaths 
+ts_death <- co_mortality_list %>% 
+  map_dfr(. , function(df){
+    counts <- df %>% 
+      filter(outcome == 1) %>% 
+      group_by(out_name, date) %>% 
+      summarise(n = n())
+    }) %>% 
+  filter(out_name %in% c('resp', 'cvd'))
+```
+
+Mortality time-series plot.
+
+```{r ts_death_plots}
+death_plot <- ggplot(data=ts_death, aes(x=date, y=n)) +
+  geom_point() +
+  facet_wrap(~out_name)
 
 death_plot
 ```
 
+
+Load morbidity case-cross.
+```{r morbidity}
+# load casecross list
+load("../../data/health/1015-co_morbidity_casecross_list.RData")
+# load icd9
+load("../../data/health/icd9_outcome_vectors.RData")
+```
+
+Clceaning hospitalization counts.
+
+```{r hosp_prep}
+icd9_outcomes <- names(icd9_outcomes)
+
+# reduce case-crossover list to only summer months and join pm
+co_hosp_list <- co_morbidity_cc_list %>% 
+  # desired format to make sure it's right
+  map(~ mutate(., outcome = as.numeric(as.character(outcome)),
+               date = as.Date(as.character(date)),
+               month = as.factor(lubridate::month(date))) %>% 
+      # filter out 2016; I don't have pm data yet
+      filter(date <= "2015-12-30") %>% 
+      filter(fips %in% fr_fips)) %>% 
+  # add outcome name to each dataframe
+  map2(.x = ., .y = icd9_outcomes, ~mutate(.x, out_name = .y))
+```
+
+
+Inpatient hospitalization counts
+
+```{r hosp_counts}
+# estimate deaths 
+hosp_counts <- co_hosp_list %>% 
+  map_dfr(. , function(df){
+    counts <- df %>% 
+      filter(outcome == 1) %>% 
+      group_by(out_name) %>% 
+      summarise(n = n())
+    })
+# print death counts
+hosp_counts
+```
+
+## Joining PM data to case-crossovers
