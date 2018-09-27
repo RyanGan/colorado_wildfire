@@ -13,3 +13,6 @@ data/
 
 *.html
 *.tiff
+
+# ignore ipynb checkpoints
+*.ipynb_checkpoints/
