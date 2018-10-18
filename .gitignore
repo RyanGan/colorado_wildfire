@@ -16,3 +16,8 @@ data/
 
 # ignore ipynb checkpoints
 *.ipynb_checkpoints/
+
+# ignore vs code
+.vscode/
+# ignore temp jupyter notebook
+exportedCardTmp_0.ipynb
