@@ -21,3 +21,5 @@ data/
 .vscode/
 # ignore temp jupyter notebook
 exportedCardTmp_0.ipynb
+# ignore aqs credentials
+epa_aqs_api_creds.txt

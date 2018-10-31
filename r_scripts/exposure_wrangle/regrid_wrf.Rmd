@@ -13,6 +13,7 @@ I have a 3x3 km resolution grid I think for the entire state of Colorado, where 
 
 Load "sf" and "raster" spatial library.
 ```{r library}
+library(tidyverse)
 library(sf)
 library(raster)
 ```
@@ -26,7 +27,6 @@ wrfgrid_sf <- st_read(dsn = "../../data/shapefiles/wrf_grid",
 us_grid_sf <- st_read(dsn = "../../data/shapefiles/1016-us_pm_grid",
                       layer = "1016-us_pm_grid")
 ```
-
 
 Extracting WRFGRID centroid latitude and longitude coordinates.
 
@@ -49,6 +49,21 @@ co_grid <- us_grid_sf[wrfgrid_sf, ]
 ```
 
 Plotting Colorado grid and WRFGRID coordinate points.
+
+Extracting Kate's krig grid centroid latitude and longitude coordinates.
+
+```{r krig_coords}
+# extract wrfgrid id vector
+GRID_ID <- co_grid$GRID_ID
+# extract centroid points from wrfgrid sf
+coords <- do.call(rbind, st_geometry(st_centroid(co_grid)))
+colnames(coords) <- c("lon", "lat")
+# bind both together in spatial dataframe
+krig_coords <- data.frame(cbind(GRID_ID, coords))
+head(krig_coords)
+# write this as a csv to use
+write_csv(krig_coords, '../../data/smoke/krig_grid_id_coords.csv')
+```
 
 ```{r plot}
 # plot
