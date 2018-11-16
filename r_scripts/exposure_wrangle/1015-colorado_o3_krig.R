@@ -21,7 +21,8 @@ files <- paste0('./data/smoke/', seq(2010,2015), '-co_daily_ozone.csv')
 # Reading in 2010 to 2015 ozone data
 ozone <- map_dfr(files, function(x) {
   read_csv(x) %>% 
-  rename(o3_8hr_max = `Daily Max 8-hour Ozone Concentration`)
+  rename(o3_8hr_max = `Daily Max 8-hour Ozone Concentration`) %>% 
+  mutate(Date = as.Date(Date, format = '%m/%d/%Y'))
 })
 
 # Find Colorado monitor locations; taking only first obs of each monitor
@@ -119,7 +120,21 @@ end
 
 # bind grid ids
 kriged_ozone <- cbind(grid_id_vector, kriged_ozone)
-summary(kriged_ozone[,1:20])
+
+# long form that is easier to join to my existing datasets
+ozone_long <- kriged_ozone %>% 
+  rename(GRID_ID = grid_id_vector) %>% 
+  # gather
+  gather(key = date, value = o3_8hr_max_ppm, -GRID_ID) %>% 
+  mutate(date = as.Date(substr(date,3,12)),
+         o3_8hr_max_ppb = as.numeric(o3_8hr_max_ppm)*1000)
+
+# check ozone
+head(ozone_long)
+tail(ozone_long)
+
+summary(ozone_long)
 
 # write kriged estimates; I should probably consider some performance metrics
-write_csv(kriged_ozone, path = './data/smoke/1015-frontrange_kriged_o3')
+write_csv(ozone_long, path = './data/smoke/1015-frontrange_kriged_o3.csv')
+
