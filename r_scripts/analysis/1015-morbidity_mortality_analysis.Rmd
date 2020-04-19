@@ -3,6 +3,7 @@ title: "Colorado wildfire smoke and cardiopulmonary morbidity"
 output:
   html_document:
     df_print: paged
+    code_folding: hide
 editor_options:
   chunk_output_type: inline
 ---
@@ -19,7 +20,7 @@ library(sf)
 
 # knitr options
 knitr::opts_chunk$set(fig.width=8, fig.height=6, 
-                      warning=FALSE, message=FALSE, echo = FALSE)
+                      warning=FALSE, message=FALSE)
 ```
 
 ## Study Area Map
@@ -58,7 +59,7 @@ county_sub_name <- c("Larimer", "Weld", "Boulder", "Broomfield", "Adams",
                 "Pueblo")
 
 # read in county shapefile and subset to only colorado fips
-co_county_sf <- st_read("../../../meta_wildfire/data/shapefile/us_county", 
+co_county_sf <- st_read("../../data/shapefiles/us_county", 
                         layer = "us_county") %>%
   # limit to colorado
   filter(STATEFP == "08") %>% 
@@ -78,7 +79,7 @@ county_text <- county_clip %>%
   st_coordinates() %>% 
   cbind(., as.character(county_clip$NAME)) %>%
   as_data_frame() %>% 
-  rename(lon = X, lat = Y, county = V1) %>% 
+  rename(lon = X, lat = Y, county = V3) %>% 
   mutate(lon = as.numeric(lon), lat = as.numeric(lat))
 ```
 
@@ -91,8 +92,25 @@ frontrange_grid <- read_csv('../../data/smoke/front_range_grid.csv')
 # read in grid simple features and limit to the front range grid
 study_grid <- read_sf('../../data/shapefiles/co_krig_grid/', crs = wgs) %>% 
   filter(GRID_ID %in% frontrange_grid$GRID_ID)
+
+nrow(frontrange_grid)
+# print out bounding box for front range grid
+ggplot(frontrange_grid, 
+       aes(x=lon, y=lat, label=paste(round(lon,2), round(lat,2), sep=', '))) +
+  geom_text(size = 4) +
+  xlim(-105.5,-104.4)
 ```
 
+## Note 2020-04-18:
+Ideally I'd like to give the exact coordinates for the bounding box for Kate, 
+but I don't remember how to exacly subset. I've printed out the Lon/Lat coords
+of the grid cells I used in air pollution measures for the front range. Keep
+in mind I projected it as a WGS 84 to align with other shapefiles. But it looks
+like the bounding box cells would be 
+Top left: -105.39, 40.63
+Top right: -104.62, 40.67
+Bottom left: -105.24, 38.59
+Bottom right: -104.49, 38.62
 
 Interstate shapefile limited to I-25 and I-70.
 ```{r interstate_sf}
@@ -212,7 +230,7 @@ Final map with inset. Using the grid package.I may add the AQS monitors to this 
 #tiff(filename = "../analysis/figures/study_map.tiff", w=850, h=550)
 grid::grid.newpage()
 vpmain <- grid::viewport(width = 1, height = 1, x = 0.5, y = 0.5)
-vpinset <- grid::viewport(width = 0.25, height = 0.25, x = 0.7, y = 0.85)
+vpinset <- grid::viewport(width = 0.25, height = 0.25, x = 0.8, y = 0.85)
 print(study_map, vp = vpmain)
 print(inset_map, vp = vpinset)
 ```
@@ -304,9 +322,9 @@ co_pm <- read_csv("../../data/smoke/1015-county_popwt_pm.csv") %>%
   # group by fips 
   group_by(fips) %>%
   # apply funlag to create lagged estimates
-  mutate(., !!!funlag(pm,3), !!!funlag(smoke0_hms,3), !!!funlag(smoke5_hms,3),
-         !!!funlag(smoke10_hms,3), !!!funlag(smoke15_hms,3), 
-         !!!funlag(temp_f, 3)) %>% 
+  mutate(., !!!funlag(pm,5), !!!funlag(smoke0_hms,5), !!!funlag(smoke5_hms,5),
+         !!!funlag(smoke10_hms,5), !!!funlag(smoke15_hms,5), 
+         !!!funlag(temp_f, 5)) %>% 
   dplyr::select(-state, -month) # removing state and month to bind with casecross
 ```
 
@@ -363,9 +381,9 @@ grid_pm <- read_csv('../../data/smoke/1015-grid_pm.csv',
          # group by GRID_ID 
          group_by(GRID_ID) %>%
          # apply funlag to create lagged estimates
-         mutate(., !!!funlag(gpm_smk10unit,3), !!!funlag(gsmk5_hms,3),
-               !!!funlag(gsmk10_hms,3), !!!funlag(gsmk15_hms,3),
-               !!!funlag(temp_f_grid, 3)) %>% 
+         mutate(., !!!funlag(gpm_smk10unit,5), !!!funlag(gsmk5_hms,5),
+               !!!funlag(gsmk10_hms,5), !!!funlag(gsmk15_hms,5),
+               !!!funlag(temp_f_grid, 5)) %>% 
          dplyr::select(-month) %>% 
          # filter to grids in study area
          filter(GRID_ID %in% frontrange_grid$GRID_ID) %>% 
@@ -422,7 +440,7 @@ ozone <- read_csv('../../data/smoke/1015-frontrange_kriged_o3.csv') %>%
   # group by GRID_ID 
   group_by(GRID_ID) %>%
   # apply funlag to create lagged estimates
-  mutate(., !!!funlag(o3_8hr_max_ppb,3))
+  mutate(., !!!funlag(o3_8hr_max_ppb,5))
 ```
 
 ## Hospitalizations and Mortality
@@ -520,7 +538,7 @@ hosp_counts <- co_hosp_list %>%
         summarise(n_events = n()) %>% 
         mutate(strata = x) %>% 
         dplyr::select(out_name, strata, n_events)
-    } else if(x == 'Sex'){
+    } else if (x == 'Sex'){
       counts <- df %>% 
         filter(outcome == 1) %>% 
         group_by(out_name, sex) %>% 
@@ -633,15 +651,16 @@ There is no association for most outcomes. Notable observation would be the inve
 Here is a table for the point estimated and 95%CIs from the plot above. The gpm_smk10unit stands for grid PM2.5 smoke estimate, 10 unit increase.
 
 ```{r sameday_hosp_table}
-knitr::kable(dplyr::select(same_day, outcome, estimate:conf.high), 
+knitr::kable(dplyr::select(same_day, outcome, estimate:conf.high) %>%
+    mutate_at(vars(estimate:conf.high), ~round(.x, 3)), 
   caption = 'Same Day Association with Smoke and Cardiopulmonary Hospitalizations')
 ```
 
 
-### Cumulative effect for a 10 ug/m^3 of smoke exposure over 4 days
+### Cumulative effect for a 10 ug/m^3 of smoke exposure over 5 days
 
 ```{r lag_function}
-distribute_that_lag <- function(lag_mod, strata) {
+distribute_that_lag <- function(lag_mod, strata, exp_b) {
   # output pm basis estimates
   parms <- broom::tidy(lag_mod) %>% 
     filter(stringr::str_detect(term, strata)) %>% 
@@ -649,8 +668,7 @@ distribute_that_lag <- function(lag_mod, strata) {
     as_vector()
   # output estimate names for cov matrix
   names <- stringr::str_subset(names(lag_mod$coefficients), strata)
-  # define lagged basis spline if it doesn't exist
-  exp_b <- splines::ns(0:3, df = 3, intercept = T)
+  
   # estimate associations
   est <- exp_b %*% parms
   # estimate standard error for each interval
@@ -706,7 +724,7 @@ Contstrained distributed lag results.
 
 ```{r hosp_dl_results}
 # estimating lagged effects
-out_rep <- rep(outcome, each = 8)
+out_rep <- rep(outcome, each = 12)
 
 dl_results  <- lapply(co_hosp_list, function(x){
   # output dataframe from list
@@ -714,22 +732,24 @@ dl_results  <- lapply(co_hosp_list, function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
-  
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
   
   # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
-  
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
+  
   # pm basis
   pm_basis <- pm_mat %*% exp_b
   # temp basis
@@ -741,25 +761,26 @@ dl_results  <- lapply(co_hosp_list, function(x){
                     data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b = exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
   map_dfr(.,rbind) %>% 
   # bind in outcome names
   bind_cols(data.frame(out_rep), .) 
+
 ```
 
 ```{r cumulative_cardiopulmonary_results}
-# get the cumulative effect over 4 days
-cumulative_results <- filter(dl_results, type == 'cumulative' & time == 3) %>% 
+# get the cumulative effect over 6 days
+cumulative_results <- filter(dl_results, type == 'cumulative' & time == 5) %>% 
     dplyr::select(-strata, -time) %>% 
     mutate(outcome = forcats::fct_relevel(outcome, out_order),
          group = as.factor(if_else(outcome %in% out_order[1:5],
          "Respiratory", "Cardiovascular")))
 ```
 
-Cumulative effect of 0 to 3 days of smoke exposure for a 10 ug/m^3. 
+Cumulative effect of 0 to 5 days of smoke exposure for a 10 ug/m^3. 
 
 ```{r cumulative_resp_plot}
 # plot
@@ -781,12 +802,14 @@ plot <- ggplot(data = cumulative_results,
 print(plot)
 ```
 
-There may be an association with hospitalizations for asthma and certain cardiovascular events (cerebrovascular, heart failure, IHD) for every 10 ug/m^3 of smoke PM2.5 over the course of 4 days of smoke exposure.
+There may be an association with hospitalizations for asthma and certain cardiovascular events (cerebrovascular, heart failure, IHD) for every 10 ug/m^3 of smoke PM2.5 over the course of 6 days of smoke exposure.
 
 Table of cumulative effects results for a 10 ug/m^3 increase in smoke PM2.5
 
 ```{r cumulative_hosp_table}
-knitr::kable(dplyr::select(cumulative_results, outcome, type:upper_95), 
+knitr::kable(
+  dplyr::select(cumulative_results, outcome, type:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)), 
   caption = 'Cumulative effect of smoke on Cardiopulmonary Hospitalizations')
 ```
 
@@ -827,7 +850,9 @@ print(dl_hosp_plot)
 For all respiratory and asthma, there appears to be a inverse association (or trending towards an inverse association) on the same day of exposure, with a steady increase in the risk on day 3. I think the acute bronchitis and pneumonia signals are noisy and the day 3 association is not likely real (suggesting that maybe my model decision is not great). It could be that I need to further reduce the lagged days evaluated to maybe 0 to 2 since the smoke events are pretty brief.
 
 ```{r dl_hosp_table}
-knitr::kable(dplyr::select(constrained_lag_results, outcome, time:upper_95),
+knitr::kable(
+  dplyr::select(constrained_lag_results, outcome, time:upper_95) %>% 
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
   caption = 'Distributed Lag Daily Associations with Smoke and Cardiopulmonary Hospitalizations')
 ```
 
@@ -837,12 +862,12 @@ Running an unconstrained lag model where I model the cooresponding lagged day of
 
 ```{r unconstrained_lag_hosp}
 # repeat outcomes 4 times
-out_rep <- rep(outcome, each = 4)
+out_rep <- rep(outcome, each = 6)
 # day to repeat
-day <- rep(0:3, times = 11)
+day <- rep(0:5, times = 11)
 
 # lag day vector
-lag_days <- c('', '_lag1', '_lag2', '_lag3')
+lag_days <- c('', '_lag1', '_lag2', '_lag3', '_lag4', '_lag5')
 
 # map across lagged days
 hosp_uc_lag_results <- map_dfr(co_hosp_list, function(df){
@@ -893,7 +918,8 @@ In the context of the distributed lag models, this may help confirm some of the 
 Unconstrained lag associations table.
 
 ```{r unconstrained_hosp_table}
-knitr::kable(dplyr::select(hosp_uc_lag_results, outcome, day, estimate:conf.high),
+knitr::kable(dplyr::select(hosp_uc_lag_results, outcome, day, estimate:conf.high) %>%
+    mutate_at(vars(estimate:conf.high), ~round(.x, 3)),
   caption = 'Unconstrained Lag Daily Associations with Smoke and Cardiopulmonary Hospitalizations')
 ```
 
@@ -903,7 +929,7 @@ Using the distributed lag model for each sex strata. Also modifying code to pull
 
 ```{r sex_dl_results}
 # estimating lagged effects
-out_rep <- rep(outcome, each = 16)
+out_rep <- rep(outcome, each = 24)
 
 sex_strata <- c('F', 'M')
 
@@ -914,19 +940,22 @@ sex_results  <- map_dfr(co_hosp_list, function(df){
      mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
-   
+    filter(!is.na(gpm_smk10unit_lag5))
+
     # create lagged matrix
     pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3, 
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
     # temp matrix
     temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                                 temp_f_grid_lag2, temp_f_grid_lag3))
+                                 temp_f_grid_lag2, temp_f_grid_lag3,
+                                 temp_f_grid_lag4, temp_f_grid_lag5))
     
     # ozone matrix
     o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                               o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                               o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3, 
+                               o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
     
     # define lagged basis spline
     exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -941,7 +970,7 @@ sex_results  <- map_dfr(co_hosp_list, function(df){
                       data = data)
   
     # estimate lag estimate
-    lag_est <- distribute_that_lag(lag_mod, strata = "pm") %>% 
+    lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) %>% 
       mutate(sex = x)
     return(lag_est)
   }) 
@@ -955,7 +984,7 @@ Sex-specific plots of the cumulative effect.
 ```{r sex_strata_plot}
 # subset to cumulative results
 cumulative_sex_strata <- sex_results %>% 
-  filter(type == 'cumulative' & time == 3) %>% 
+  filter(type == 'cumulative' & time == 5) %>% 
   mutate(sex_long = if_else(sex == 'F', 'Female', 'Male'),
          outcome = forcats::fct_relevel(out_rep, out_order),
          group = as.factor(if_else(outcome %in% out_order[1:5],
@@ -985,7 +1014,8 @@ print(sex_plot)
 Sex-specific estimates table.
 
 ```{r sex_strata_table}
-knitr::kable(dplyr::select(cumulative_sex_strata, outcome, sex_long, odds_ratio:upper_95),
+knitr::kable(dplyr::select(cumulative_sex_strata, outcome, sex_long, odds_ratio:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
              caption = 'Sex-specific cumulative effect of smoke on hosptializations.')
 ```
 
@@ -996,7 +1026,7 @@ Age category stratified results.
 
 ```{r age_dl_results}
 # estimating lagged effects
-out_rep <- rep(outcome, each = 24)
+out_rep <- rep(outcome, each = 36)
 
 age_strata <- c('age_under_15', 'age_15_to_65', 'age_over_65')
 
@@ -1007,19 +1037,22 @@ age_results  <- map_dfr(co_hosp_list, function(df){
      mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
    
     # create lagged matrix
     pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
     # temp matrix
     temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                                 temp_f_grid_lag2, temp_f_grid_lag3))
+                                 temp_f_grid_lag2, temp_f_grid_lag3,
+                                 temp_f_grid_lag4, temp_f_grid_lag5))
     
     # ozone matrix
     o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                               o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                               o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                               o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
     
     # define lagged basis spline
     exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -1034,7 +1067,7 @@ age_results  <- map_dfr(co_hosp_list, function(df){
                       data = data))
   
     # estimate lag estimate
-    lag_est <- distribute_that_lag(lag_mod, strata = "pm") %>% 
+    lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) %>% 
       mutate(age_cat = x)
     return(lag_est)
   })
@@ -1048,7 +1081,7 @@ Age-specific plots of the cumulative effect.
 ```{r age_strata_plot}
 # subset to cumulative results
 cumulative_age_strata <- age_results %>% 
-  filter(type == 'cumulative' & time == 3) %>% 
+  filter(type == 'cumulative' & time == 5) %>% 
   mutate(age_long = forcats::fct_relevel(
       case_when(age_cat == 'age_under_15' ~ 'Age < 15',
                 age_cat == 'age_15_to_65' ~ 'Age 15 to 64',
@@ -1084,7 +1117,8 @@ print(age_plot)
 Age-specific estimates table.
 
 ```{r age_strata_table}
-knitr::kable(dplyr::select(cumulative_age_strata, outcome, age_long, odds_ratio:upper_95),
+knitr::kable(dplyr::select(cumulative_age_strata, outcome, age_long, odds_ratio:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
              caption = 'Age-specific cumulative effect of smoke on hosptializations.')
 ```
 
@@ -1301,17 +1335,18 @@ No significant associations with a 10 ug/m^3 increase in smoke PM2.5 and cardiop
 Here is a table of the same-day mortality association.
 
 ```{r sameday_mortality_tab}
-knitr::kable(dplyr::select(same_day_death, outcome_name, estimate:conf.high),
+knitr::kable(dplyr::select(same_day_death, outcome_name, estimate:conf.high) %>%
+    mutate_at(vars(estimate:conf.high), ~round(.x, 3)),
              caption = "Same Day Association with Smoke and Mortality")
 ```
 
 
-### Cumulative effect for a > 10 ug/m^3 of smoke exposure over 4 days on risk of death
+### Cumulative effect for a > 10 ug/m^3 of smoke exposure over 6 days on risk of death
 
-Looking at cumulative exposure of 0 to 3 days of smoke exposure on risk for cardiopulmonary death.
+Looking at cumulative exposure of 0 to 5 lagged days of smoke exposure on risk for cardiopulmonary death.
 
 ```{r mortality_results}
-cod <- rep(cause_death, each = 8)
+cod <- rep(cause_death, each = 12)
 
 dl_death_results  <- lapply(co_death_list, function(x){
   # output dataframe from list
@@ -1319,19 +1354,22 @@ dl_death_results  <- lapply(co_death_list, function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
   
   # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3, 
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -1346,7 +1384,7 @@ dl_death_results  <- lapply(co_death_list, function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -1359,7 +1397,7 @@ Cumulative effect death.
 
 ```{r death_cumulative}
 cumulative_death_results <- filter(dl_death_results, 
-                                   type == 'cumulative' & time == 3) %>% 
+                                   type == 'cumulative' & time == 5) %>% 
     dplyr::select(-strata, -time) %>% 
     mutate(outcome = forcats::fct_relevel(cod, cause_death),
          group = as.factor(if_else(cod %in% cause_death[1:3],
@@ -1393,7 +1431,8 @@ Removed asthma and cardiac arrest as they were highly variable.
 Table of the cumulative effects of smoke on underlying cause of death.
 
 ```{r cumulative_mortality_table}
-knitr::kable(dplyr::select(cumulative_death_results,outcome, odds_ratio:upper_95),
+knitr::kable(dplyr::select(cumulative_death_results,outcome, odds_ratio:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
              caption = "Cumulative Effect of Smoke on Mortality")
 ```
 
@@ -1434,10 +1473,14 @@ print(dl_death_plot)
 
 If you look at the effect sizes, I do think there may be some interesting associations with all cause respiratory and CVD. It also appears that maybe heart attacks and strokes could be increased on the day of smoke exposure.
 
+But there is too much noise at this point I think to make any conclusions if there is an association or not
+with smoke and CVD or respiratory deaths in this data.
+
 Daily distributed lagged estimates table.
 
 ```{r dl_lag_death_table}
-knitr::kable(dplyr::select(constrained_lag_results_death, outcome, time:upper_95),
+knitr::kable(dplyr::select(constrained_lag_results_death, outcome, time:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
              caption = 'Lagged Associations between Smoke and Underlying Cause of Death')
 ```
 
@@ -1448,12 +1491,12 @@ Unconstrained lag for mortality.
 
 ```{r unconstrained_lag_death}
 # repeat outcomes 4 times
-ucod <- rep(cause_death, each = 4)
+ucod <- rep(cause_death, each = 6)
 # day to repeat
-day <- rep(0:3, times = 9)
+day <- rep(0:5, times = 9)
 
 # lag day vector
-lag_days <- c('', '_lag1', '_lag2', '_lag3')
+lag_days <- c('', '_lag1', '_lag2', '_lag3', '_lag4', '_lag5')
 
 # map across lagged days
 death_uc_lag_results <- map_dfr(co_death_list, function(df){
@@ -1502,7 +1545,8 @@ print(death_uc_plot)
 Table for unconstrained lag values.
 
 ```{r death_uc_lag_table}
-knitr::kable(dplyr::select(death_uc_lag_results, ucod, day, estimate:conf.high),
+knitr::kable(dplyr::select(death_uc_lag_results, ucod, day, estimate:conf.high) %>%
+    mutate_at(vars(estimate:conf.high), ~round(.x, 3)),
              caption = 'Uncontrained Lag Association between Smoke and Underlying Cause of Death')
 ```
 
@@ -1512,7 +1556,7 @@ Using the distributed lag model for each sex strata. Also modifying code to pull
 
 ```{r sex_dl_death_results}
 # estimating lagged effects
-ucod <- rep(cause_death, each = 16)
+ucod <- rep(cause_death, each = 24)
 
 sex_strata <- c('F', 'M')
 
@@ -1523,19 +1567,22 @@ sex_death_results  <- map_dfr(co_death_list, function(df){
      mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
    
     # create lagged matrix
     pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
     # temp matrix
     temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                                 temp_f_grid_lag2, temp_f_grid_lag3))
+                                 temp_f_grid_lag2, temp_f_grid_lag3,
+                                 temp_f_grid_lag4, temp_f_grid_lag5))
     
     # ozone matrix
     o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                               o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                               o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                               o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
     
     # define lagged basis spline
     exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -1550,7 +1597,7 @@ sex_death_results  <- map_dfr(co_death_list, function(df){
                       data = data)
   
     # estimate lag estimate
-    lag_est <- distribute_that_lag(lag_mod, strata = "pm") %>% 
+    lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) %>% 
       mutate(sex = x)
     return(lag_est)
   }) 
@@ -1564,7 +1611,7 @@ Sex-specific plots of the cumulative effect.
 ```{r sex_strata_plot_death}
 # subset to cumulative results
 cumulative_sex_death_strata <- sex_death_results %>% 
-  filter(type == 'cumulative' & time == 3) %>% 
+  filter(type == 'cumulative' & time == 5) %>% 
   mutate(sex_long = if_else(sex == 'F', 'Female', 'Male'),
          outcome = forcats::fct_relevel(ucod, cause_death),
          group = as.factor(if_else(ucod %in% cause_death[1:3],
@@ -1595,7 +1642,8 @@ print(sex_plot)
 Sex-specific estimates table.
 
 ```{r sex_strata_table_death}
-knitr::kable(dplyr::select(cumulative_sex_strata, outcome, sex_long, odds_ratio:upper_95),
+knitr::kable(dplyr::select(cumulative_sex_strata, outcome, sex_long, odds_ratio:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
              caption = 'Sex-specific cumulative effect of smoke on hosptializations.')
 ```
 
@@ -1603,7 +1651,7 @@ knitr::kable(dplyr::select(cumulative_sex_strata, outcome, sex_long, odds_ratio:
 
 ```{r age_strata_death}
 # repeat cause of death name 
-ucod <- rep(cause_death[c(1,4)], each = 24)
+ucod <- rep(cause_death[c(1,4)], each = 36)
 
 # define age strata to loop through
 age_strata <- c('age_under_15', 'age_15_to_65', 'age_over_65')
@@ -1615,19 +1663,22 @@ age_death_results  <- map_dfr(co_death_list[c(1,4)], function(df){
      mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
    
     # create lagged matrix
     pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
     # temp matrix
     temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                                 temp_f_grid_lag2, temp_f_grid_lag3))
+                                 temp_f_grid_lag2, temp_f_grid_lag3,
+                                 temp_f_grid_lag4, temp_f_grid_lag5))
     
     # ozone matrix
     o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                               o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                               o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                               o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
     
     # define lagged basis spline
     exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -1642,7 +1693,7 @@ age_death_results  <- map_dfr(co_death_list[c(1,4)], function(df){
                       data = data)
   
     # estimate lag estimate
-    lag_est <- distribute_that_lag(lag_mod, strata = "pm") %>% 
+    lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) %>% 
       mutate(age_cat = x)
     return(lag_est)
   }) 
@@ -1654,7 +1705,7 @@ Age-specific plots of the cumulative effect.I'm going to cut out deaths under 15
 ```{r age_death_strata_plot}
 # subset to cumulative results
 cumulative_age_death_strata <- age_death_results %>% 
-  filter(type == 'cumulative' & time == 3) %>% 
+  filter(type == 'cumulative' & time == 5) %>% 
   filter(age_cat != 'age_under_15') %>% 
   mutate(age_long = forcats::fct_relevel(
     case_when(age_cat == 'age_under_15' ~ 'Age < 15',
@@ -1690,7 +1741,8 @@ Table of age-specific associations.
 
 ```{r age_specific_death_tabs}
 knitr::kable(dplyr::select(cumulative_age_death_strata, 
-                    outcome, age_long, odds_ratio:upper_95),
+                    outcome, age_long, odds_ratio:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
              caption = 'Age-specific associations between smoke and underlying cause of death')
 ```
 
@@ -1701,7 +1753,7 @@ The continuous definition of smoke may have some misclassification bias, particu
 ### Hospitalizations and Binary Smoke
 
 ```{r binary_hosp_results}
-out_rep <- rep(outcome, each = 8)
+out_rep <- rep(outcome, each = 12)
 
 hosp_binary_results  <- lapply(co_hosp_list, function(x){
   # output dataframe from list
@@ -1709,27 +1761,29 @@ hosp_binary_results  <- lapply(co_hosp_list, function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gsmk10_hms_lag3))
+    filter(!is.na(gsmk10_hms_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gsmk10_hms, gsmk10_hms_lag1, 
-                             gsmk10_hms_lag2, gsmk10_hms_lag3))
+                             gsmk10_hms_lag2, gsmk10_hms_lag3, 
+                             gsmk10_hms_lag4, gsmk10_hms_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
   # pm basis
   pm_basis <- pm_mat %*% exp_b
   # temp basis
   temp_basis <- temp_mat %*% exp_b
-  temp_basis <-
+
   # run lagged model
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -1739,9 +1793,9 @@ hosp_binary_results  <- lapply(co_hosp_list, function(x){
 ```
 
 ```{r binary_cumulative_plot}
-# get the cumulative effect over 4 days
+# get the cumulative effect over 6 days
 cumulative_bin_results <- filter(hosp_binary_results, 
-                                 type == 'cumulative' & time == 3) %>% 
+                                 type == 'cumulative' & time == 5) %>% 
     dplyr::select(-strata, -time) %>% 
     mutate(outcome = forcats::fct_relevel(outcome, out_order),
          group = as.factor(if_else(outcome %in% out_order[1:5],
@@ -1756,7 +1810,7 @@ cbin_hosp_plot <- ggplot(data = cumulative_bin_results,
   geom_hline(yintercept = 1, linetype = "dashed", colour = "red") +
   ylab(expression(paste("Odds Ratio: Smoke PM"[2.5], " > 10 ug/m"^3))) +
   xlab("Outcome") +
-  ggtitle("Hospitalization Cumulative Smoke Exposure 0 to 4 Days") +
+  ggtitle("Hospitalization Cumulative Smoke Exposure 0 to 5 Days") +
   theme_bw()+
   theme(panel.grid.major.x = element_blank(),
         panel.grid.major.y = element_line(linetype = "dotted"),
@@ -1767,12 +1821,12 @@ cbin_hosp_plot <- ggplot(data = cumulative_bin_results,
 print(cbin_hosp_plot)
 ```
 
-There is a significant association with this binary cutoff and asthma over 0 to 4 days. Some of the cardiovascular outcomes that were trending towards 'significance' were attenuated to the null here. 
+There is a significant association with this binary cutoff and asthma over 0 to 5 days. Some of the cardiovascular outcomes that were trending towards 'significance' were attenuated to the null here. 
 
 ### Mortality
 
 ```{r binary_death_results}
-cod <- rep(cause_death, each = 8)
+cod <- rep(cause_death, each = 12)
 
 binary_death_results  <- lapply(co_death_list, function(x){
   # output dataframe from list
@@ -1780,15 +1834,17 @@ binary_death_results  <- lapply(co_death_list, function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gsmk10_hms, gsmk10_hms_lag1, 
-                             gsmk10_hms_lag2, gsmk10_hms_lag3))
+                             gsmk10_hms_lag2, gsmk10_hms_lag3,
+                             gsmk10_hms_lag4, gsmk10_hms_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
   # pm basis
@@ -1800,7 +1856,7 @@ binary_death_results  <- lapply(co_death_list, function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -1810,9 +1866,10 @@ binary_death_results  <- lapply(co_death_list, function(x){
 ```
 
 ```{r binary_cumulative_death}
-# get the cumulative effect over 4 days
+
+# get the cumulative effect over 6 days
 c_bin_death_results <- filter(binary_death_results, 
-                                   type == 'cumulative' & time == 3) %>% 
+                                   type == 'cumulative' & time == 5) %>% 
     dplyr::select(-strata, -time) %>% 
     mutate(outcome = forcats::fct_relevel(cod, cause_death),
          group = as.factor(if_else(cod %in% cause_death[1:3],
@@ -1828,7 +1885,7 @@ cbin_death_plot <- ggplot(data = c_bin_death_results,
   geom_hline(yintercept = 1, linetype = "dashed", colour = "red") +
   ylab(expression(paste("Odds Ratio: Smoke PM"[2.5], " > 10 ug/m"^3))) +
   xlab("Outcome") +
-  ggtitle("Mortality Cumulative Smoke Exposure 0 to 4 Days") +
+  ggtitle("Mortality Cumulative Smoke Exposure 0 to 5 Lagged Days") +
   theme_bw()+
   theme(panel.grid.major.x = element_blank(),
         panel.grid.major.y = element_line(linetype = "dotted"),
@@ -1852,7 +1909,7 @@ Since there are fewer deaths for some of the subcategories and I'm reducing furt
 The first fire I'll look at is the Four-Mile Canyon Fire that occurred west of Boulder. It started on September 7, 2010 and contained on September 13th. I will limit the time frame to 2010-05-01 to 2010-10-31 and to Boulder County only. I'm open to adding additional counties known to be impacted by wildfire smoke.
 
 ```{r fourmile_hosp_results}
-out_rep <- rep(outcome, each = 8)
+out_rep <- rep(outcome, each = 12)
 
 mile4_hosp_cont <-lapply(co_hosp_list, function(x){
   # output dataframe from list
@@ -1863,18 +1920,21 @@ mile4_hosp_cont <-lapply(co_hosp_list, function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
     # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -1889,7 +1949,7 @@ mile4_hosp_cont <-lapply(co_hosp_list, function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
   
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -1900,10 +1960,11 @@ mile4_hosp_cont <-lapply(co_hosp_list, function(x){
 ```
 
 ```{r mile4_deaths}
-cod <- rep(names(co_death_list[c(1,4)]), each=8)
+cod <- rep(names(co_death_list[c(1,4)]), each=12)
 
 mile4_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   # output dataframe from list
+  x <- co_death_list[[1]]
   data <- x %>%     
     # filter to boulder
     filter(fips.x == '08013') %>% 
@@ -1911,19 +1972,21 @@ mile4_death_cont <- lapply(co_death_list[c(1,4)], function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
-  
-  # ozone matrix
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -1938,7 +2001,7 @@ mile4_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -1954,7 +2017,7 @@ Waldo Canyon started on June 23rd 2012 and burned until July 10th 2012 near Colo
 
 Limiting hospitalizations and deaths to May 2012 through August 2012. I'm consider expanding time frame and other counties too. 
 ```{r waldo_hosp_results}
-out_rep <- rep(outcome, each = 8)
+out_rep <- rep(outcome, each = 12)
 
 waldo_hosp_cont <-lapply(co_hosp_list, function(x){
   # output dataframe from list
@@ -1965,19 +2028,21 @@ waldo_hosp_cont <-lapply(co_hosp_list, function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
-  
-  # ozone matrix
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -1992,7 +2057,7 @@ waldo_hosp_cont <-lapply(co_hosp_list, function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -2004,7 +2069,7 @@ waldo_hosp_cont <-lapply(co_hosp_list, function(x){
 
 
 ```{r waldo_death_results}
-cod <- rep(names(co_death_list[c(1,4)]), each=8)
+cod <- rep(names(co_death_list[c(1,4)]), each=12)
 
 waldo_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   # output dataframe from list
@@ -2015,19 +2080,21 @@ waldo_death_cont <- lapply(co_death_list[c(1,4)], function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
-  
-  # ozone matrix
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -2042,7 +2109,7 @@ waldo_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -2057,7 +2124,7 @@ waldo_death_cont <- lapply(co_death_list[c(1,4)], function(x){
 For this fire, I'm limiting hospitalizations and deaths to May 2012 through August 2012 occurring in Larmier county.
 
 ```{r highpark_hosp_results}
-out_rep <- rep(outcome, each = 8)
+out_rep <- rep(outcome, each = 12)
 
 hipark_hosp_cont <-lapply(co_hosp_list, function(x){
   # output dataframe from list
@@ -2068,18 +2135,20 @@ hipark_hosp_cont <-lapply(co_hosp_list, function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
-
+    filter(!is.na(gpm_smk10unit_lag5))
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
-  # ozone matrix
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -2094,7 +2163,7 @@ hipark_hosp_cont <-lapply(co_hosp_list, function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -2105,7 +2174,7 @@ hipark_hosp_cont <-lapply(co_hosp_list, function(x){
 ```
 
 ```{r hipark_deaths}
-cod <- rep(names(co_death_list[c(1,4)]), each=8)
+cod <- rep(names(co_death_list[c(1,4)]), each=12)
 
 hipark_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   # output dataframe from list
@@ -2116,18 +2185,21 @@ hipark_death_cont <- lapply(co_death_list[c(1,4)], function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
     # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -2142,7 +2214,7 @@ hipark_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -2156,7 +2228,7 @@ hipark_death_cont <- lapply(co_death_list[c(1,4)], function(x){
 
 2012 local fires for all grid cells in study domain.
 ```{r local_hosp_results}
-out_rep <- rep(outcome, each = 8)
+out_rep <- rep(outcome, each = 12)
 
 local_hosp_cont <-lapply(co_hosp_list, function(x){
   # output dataframe from list
@@ -2165,18 +2237,21 @@ local_hosp_cont <-lapply(co_hosp_list, function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
-  # ozone matrix
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -2191,7 +2266,7 @@ local_hosp_cont <-lapply(co_hosp_list, function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -2202,7 +2277,7 @@ local_hosp_cont <-lapply(co_hosp_list, function(x){
 ```
 
 ```{r local_deaths}
-cod <- rep(names(co_death_list[c(1,4)]), each=8)
+cod <- rep(names(co_death_list[c(1,4)]), each=12)
 
 local_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   # output dataframe from list
@@ -2211,18 +2286,21 @@ local_death_cont <- lapply(co_death_list[c(1,4)], function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
-  # ozone matrix
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -2237,7 +2315,7 @@ local_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -2252,7 +2330,7 @@ local_death_cont <- lapply(co_death_list[c(1,4)], function(x){
 Fires in Canada and Washington led to the transported smoke event that affected the Front Range communities in Colorado in 2015. I have limited this analysis to 2015-05-01 to 2015-10-31 (note hospitalizations only go until 2015-10-01). I included all Front Range counties.
 
 ```{r transport_hosp_results}
-out_rep <- rep(outcome, each = 8)
+out_rep <- rep(outcome, each = 12)
 
 trans_hosp_cont <-lapply(co_hosp_list, function(x){
   # output dataframe from list
@@ -2261,18 +2339,21 @@ trans_hosp_cont <-lapply(co_hosp_list, function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
-  # ozone matrix
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -2287,7 +2368,7 @@ trans_hosp_cont <-lapply(co_hosp_list, function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -2298,7 +2379,7 @@ trans_hosp_cont <-lapply(co_hosp_list, function(x){
 ```
 
 ```{r transport_deaths}
-cod <- rep(names(co_death_list[c(1,4)]), each=8)
+cod <- rep(names(co_death_list[c(1,4)]), each=12)
 
 trans_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   # output dataframe from list
@@ -2307,18 +2388,21 @@ trans_death_cont <- lapply(co_death_list[c(1,4)], function(x){
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
-    filter(!is.na(gpm_smk10unit_lag3))
+    filter(!is.na(gpm_smk10unit_lag5))
 
   # create lagged matrix
   pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
-                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3,
+                             gpm_smk10unit_lag4, gpm_smk10unit_lag5))
   
   # temp matrix
   temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
-                               temp_f_grid_lag2, temp_f_grid_lag3))
-  # ozone matrix
+                               temp_f_grid_lag2, temp_f_grid_lag3,
+                               temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
   o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
-                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3))
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3,
+                             o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
   
   # define lagged basis spline
   exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
@@ -2333,7 +2417,7 @@ trans_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
 
   # estimate lag estimate
-  lag_est <- distribute_that_lag(lag_mod, strata = "pm") 
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
   return(lag_est)
   }) %>%  #end lappply
   # bind rows
@@ -2351,7 +2435,7 @@ Plots of association for each hospitalization outcome by event. I left out Four 
 # bind event dataframes together
 hosp_event <- bind_rows(waldo_hosp_cont, hipark_hosp_cont, local_hosp_cont,
                         trans_hosp_cont) %>% 
-  filter(type == 'cumulative' & time == 3) %>% 
+  filter(type == 'cumulative' & time == 5) %>% 
   dplyr::select(-strata, -time) %>% 
   mutate(outcome = forcats::fct_relevel(out_rep, out_order),
          group = as.factor(if_else(outcome %in% out_order[1:5],
@@ -2392,7 +2476,8 @@ I left out Four Mile Canyon fire for now since the estimates were unstable due t
 
 Printing out fire events hospitalization table.
 ```{r fire_events_hosp_table}
-knitr::kable(dplyr::select(hosp_event, event, outcome, odds_ratio:upper_95),
+knitr::kable(dplyr::select(hosp_event, event, outcome, odds_ratio:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
              caption = 'Cumulative association between smoke from specific events and hospitalizations')
 ```
 
@@ -2403,7 +2488,7 @@ Plotting underlying cause of death by fire events.
 # bind event dataframes together
 death_event <- bind_rows(waldo_death_cont, hipark_death_cont, local_death_cont,
                         trans_death_cont) %>% 
-  filter(type == 'cumulative' & time == 3) %>% 
+  filter(type == 'cumulative' & time == 5) %>% 
   dplyr::select(-strata, -time) %>% 
   mutate(outcome = as.factor(if_else(cod == 'resp', 
                                      'Respiratory', 'Cardiovascular')),
@@ -2439,7 +2524,8 @@ No association with deaths.
 
 Table for mortality for specific events.
 ```{r mortality_fire_event_table}
-knitr::kable(dplyr::select(death_event, outcome, event,odds_ratio:upper_95),
+knitr::kable(dplyr::select(death_event, outcome, event,odds_ratio:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
              caption = 'Cumulative association with smoke and mortality for specific events')
 ```
 
