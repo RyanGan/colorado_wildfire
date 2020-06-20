@@ -226,13 +226,43 @@ study_map
 Final map with inset. Using the grid package.I may add the AQS monitors to this map.
 
 ```{r map_w_inset}
-# save map
-#tiff(filename = "../analysis/figures/study_map.tiff", w=850, h=550)
 grid::grid.newpage()
 vpmain <- grid::viewport(width = 1, height = 1, x = 0.5, y = 0.5)
-vpinset <- grid::viewport(width = 0.25, height = 0.25, x = 0.8, y = 0.85)
+vpinset <- grid::viewport(width = 0.25, height = 0.25, x = 0.725, y = 0.85)
 print(study_map, vp = vpmain)
 print(inset_map, vp = vpinset)
+```
+
+Saving high quality map images for paper.
+```{r save_map_w_inset}
+# save map as png high res
+png(
+  filename = "../analysis/figures/fig1_study_map.png", 
+  width = 8, 
+  height = 6, 
+  units = 'in',
+  res = 300
+  )
+grid::grid.newpage()
+vpmain <- grid::viewport(width = 1, height = 1, x = 0.5, y = 0.5)
+vpinset <- grid::viewport(width = 0.25, height = 0.25, x = 0.72, y = 0.85)
+print(study_map, vp = vpmain)
+print(inset_map, vp = vpinset)
+dev.off()
+
+# also save as pdf
+# save map as png high res
+pdf(
+  file = "../analysis/figures/fig1_study_map.pdf", 
+  width=8, 
+  height=6
+  )
+grid::grid.newpage()
+vpmain <- grid::viewport(width = 1, height = 1, x = 0.5, y = 0.5)
+vpinset <- grid::viewport(width = 0.25, height = 0.25, x = 0.72, y = 0.85)
+print(study_map, vp = vpmain)
+print(inset_map, vp = vpinset)
+dev.off()
 ```
 
 ## Smoke PM2.5
@@ -343,6 +373,26 @@ pm_plot <- ggplot(data=co_pm, aes(x=date, y=cpm_smk)) +
   xlab('Date') +
   ylab('County Smoke PM2.5 ug/m^3') +
   theme_minimal()
+
+
+# save plot as png and pdf
+ggsave(
+  filename = '../analysis/figures/fig3_pm.pdf',
+  plot = pm_plot,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+
+ggsave(
+  filename = '../analysis/figures/fig3_pm.png',
+  plot = pm_plot,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
+
 # plot
 print(pm_plot)
 ```
@@ -659,7 +709,7 @@ knitr::kable(dplyr::select(same_day, outcome, estimate:conf.high) %>%
 ```
 
 
-### Cumulative effect for a 10 ug/m^3 of smoke exposure over 5 days
+### Cumulative effect for a 10 ug/m^3 of smoke exposure over 3 days
 
 ```{r lag_function}
 distribute_that_lag <- function(lag_mod, strata, exp_b) {
@@ -807,6 +857,22 @@ plot <- ggplot(data = cumulative_results,
         axis.text.x = element_text(angle = 45, hjust=0.95, vjust = 0.75,
                                    size = 10))
 
+ggsave(
+  filename = '../analysis/figures/figS2_hosp_cumulative.pdf',
+  plot = plot,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+ggsave(
+  filename = '../analysis/figures/figS2_hosp_cumulative.png',
+  plot = plot,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
+
 print(plot)
 ```
 
@@ -851,6 +917,22 @@ dl_hosp_plot <- ggplot(data=constrained_lag_results,
         legend.position = 'bottom',
         panel.grid.minor = element_blank(),
         strip.background = element_blank())
+
+ggsave(
+  filename = '../analysis/figures/figS1_dl_hosp.pdf',
+  plot = dl_hosp_plot,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+ggsave(
+  filename = '../analysis/figures/figS1_dl_hospe.png',
+  plot = dl_hosp_plot,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
 
 print(dl_hosp_plot)
 ```
@@ -930,6 +1012,23 @@ uc_plot <- ggplot(data=hosp_uc_lag_results, aes(x=day, y=estimate,
         legend.position = 'bottom',
         panel.grid.minor = element_blank(),
         strip.background = element_blank())
+
+# save unconstrained lag plot for morbiity
+ggsave(
+  filename = '../analysis/figures/fig4_unconst_lag.pdf',
+  plot = uc_plot,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+ggsave(
+  filename = '../analysis/figures/fig4_unconst_lag.png',
+  plot = uc_plot,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
 
 print(uc_plot)
 ```
@@ -1035,6 +1134,23 @@ sex_plot <- ggplot(data=cumulative_sex_strata, aes(x=sex_long, y=odds_ratio,
         legend.position = 'bottom',
         panel.grid.minor = element_blank(),
         strip.background = element_blank())
+
+# save plot sup fig 3
+ggsave(
+  filename = '../analysis/figures/figS3_hosp_sexstrata.pdf',
+  plot = sex_plot,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+ggsave(
+  filename = '../analysis/figures/figS3_hosp_sexstrata.png',
+  plot = sex_plot,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
 
 print(sex_plot)
 ```
@@ -1142,6 +1258,25 @@ age_plot <- ggplot(data=cumulative_age_strata, aes(x=age_long, y=odds_ratio,
         panel.grid.minor = element_blank(),
         strip.background = element_blank(),
         axis.text.x = element_text(angle = 45, hjust=0.95, vjust = 0.75))
+
+
+
+ggsave(
+  filename = '../analysis/figures/figS4_hosp_agestrata.pdf',
+  plot = age_plot,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+
+ggsave(
+  filename = '../analysis/figures/figS4_hosp_agestrata.png',
+  plot = age_plot,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
 
 print(age_plot)
 ```
@@ -1359,6 +1494,7 @@ death_plot2 <- ggplot(data = filter(same_day_death,
         panel.grid.minor = element_blank(),
         axis.text.x = element_text(angle = 45, hjust=0.95, vjust = 0.75))
 
+
 print(death_plot2)
 ```
 
@@ -1457,6 +1593,24 @@ cumulative_death_plot <- ggplot(data = cumulative_death_results,
         panel.grid.minor = element_blank(),
         axis.text.x = element_text(angle = 45, hjust=0.95, vjust = 0.75,
                                    size = 10))
+
+
+ggsave(
+  filename = '../analysis/figures/figS6_mortality.pdf',
+  plot = cumulative_death_plot,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+
+ggsave(
+  filename = '../analysis/figures/figS6_mortality.png',
+  plot = cumulative_death_plot,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
 
 print(cumulative_death_plot)
 ```
@@ -1575,6 +1729,25 @@ death_uc_plot <- ggplot(data=death_uc_lag_results, aes(x=day, y=estimate,
         panel.grid.minor = element_blank(),
         strip.background = element_blank())
 
+
+ggsave(
+  filename = '../analysis/figures/fig5_mortality.pdf',
+  plot = death_uc_plot,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+
+ggsave(
+  filename = '../analysis/figures/fig5_mortality.png',
+  plot = death_uc_plot,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
+
+
 print(death_uc_plot)
 ```
 
@@ -1674,6 +1847,23 @@ sex_plot <- ggplot(data=cumulative_sex_death_strata, aes(x=sex_long, y=odds_rati
         legend.position = 'bottom',
         panel.grid.minor = element_blank(),
         strip.background = element_blank())
+
+ggsave(
+  filename = '../analysis/figures/figS7_mortality_sexstrata.pdf',
+  plot = sex_plot,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+
+ggsave(
+  filename = '../analysis/figures/figS7_mortality_sexstrata.png',
+  plot = sex_plot,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
 
 print(sex_plot)
 ```
@@ -1775,6 +1965,24 @@ age_plot <- ggplot(data=cumulative_age_death_strata, aes(x=age_long, y=odds_rati
         legend.position = 'bottom',
         panel.grid.minor = element_blank(),
         strip.background = element_blank())
+
+ggsave(
+  filename = '../analysis/figures/figS8_mortality_agestrata.pdf',
+  plot = age_plot,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+
+ggsave(
+  filename = '../analysis/figures/figS8_mortality_agestrata.png',
+  plot = age_plot,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
+
 
 print(age_plot)
 ```
@@ -2073,7 +2281,9 @@ waldo_hosp_cont <-lapply(co_hosp_list, function(x){
   data <- x %>% 
     # filter to el paso
     filter(fips.x == '08041') %>% 
-    filter(date >= '2012-05-01' & date <= '2012-10-31') %>% 
+    # filter(date >= '2012-05-01' & date <= '2012-10-31') %>% 
+    # NOTE 2020-06-20 changed to match other date restrictions
+    filter(date >= '2012-08-01' & date <= '2012-10-31') %>% 
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
@@ -2126,7 +2336,9 @@ waldo_death_cont <- lapply(co_death_list[c(1,4)], function(x){
   data <- x %>%     
     # filter to el paso
     filter(fips.x == '08041') %>% 
-    filter(date >= '2012-05-01' & date <= '2012-10-31') %>% 
+    #filter(date >= '2012-05-01' & date <= '2012-10-31') %>% 
+    # NOTE 2020-06-20 changed to match other date restrictions
+    filter(date >= '2012-08-01' & date <= '2012-10-31') %>% 
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
@@ -2182,7 +2394,9 @@ hipark_hosp_cont <-lapply(co_hosp_list, function(x){
   data <- x %>% 
     # filter to larimer
     filter(fips.x == '08069') %>% 
-    filter(date >= '2012-05-01' & date <= '2012-10-31') %>% 
+    # filter(date >= '2012-05-01' & date <= '2012-10-31') %>% 
+    # NOTE 2020-06-20 changed to match other date restrictions
+    filter(date >= '2012-08-01' & date <= '2012-10-31') %>% 
     mutate(date = as.Date(date),
            outcome = as.numeric(as.character(outcome))) %>%
     # remove missing lagged data
@@ -2499,7 +2713,7 @@ hosp_event <- bind_rows(waldo_hosp_cont, hipark_hosp_cont, local_hosp_cont,
          "Respiratory", "Cardiovascular")),
          # ordering fire event
          event = forcats::fct_relevel(event, c('Waldo Canyon 2012', 'High Park 2012',
-                                               'Local 2012', 'Transport 2012'))) %>% 
+                                               'Local 2012', 'Transport 2015'))) %>% 
   # filter out acute bronchitis
   filter(outcome != 'Acute Bronchitis')
 
@@ -2551,7 +2765,7 @@ death_event <- bind_rows(waldo_death_cont, hipark_death_cont, local_death_cont,
                                      'Respiratory', 'Cardiovascular')),
          # ordering fire event
          event = forcats::fct_relevel(event, c('Waldo Canyon 2012', 'High Park 2012',
-                                               'Local 2012', 'Transport 2012'))) 
+                                               'Local 2012', 'Transport 2015'))) 
 
 # plot
 death_event_plot <- ggplot(data = death_event, 
@@ -2589,13 +2803,219 @@ knitr::kable(dplyr::select(death_event, outcome, event,odds_ratio:upper_95) %>%
 
 ### 2020-05-31 SENSITIVITY ANALYSIS OF RESTRICING TIME 2012; 2015 fires:
 
-Restricting to August 1st to Oct 31s
+#### Early Season Fires
+Restricting to Early Season Fires June 1 to July 31st.
 
-```{r transport_hosp_results_V2}
+```{r transport_hosp_results_early}
 rep_times <- 2*4
 out_rep <- rep(outcome, each = rep_times)
 
-trans_hosp_cont_v2 <-lapply(co_hosp_list, function(x){
+trans_hosp_cont_early <-lapply(co_hosp_list, function(x){
+  # output dataframe from list
+  data <- x %>% 
+    filter(date >= '2015-05-01' & date <= '2015-07-31') %>% 
+    mutate(date = as.Date(date),
+           outcome = as.numeric(as.character(outcome))) %>%
+    # remove missing lagged data
+    filter(!is.na(gpm_smk10unit_lag5))
+
+  # create lagged matrix
+  pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3)) #,
+                             #gpm_smk10unit_lag4, gpm_smk10unit_lag5))
+  
+  # temp matrix
+  temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
+                               temp_f_grid_lag2, temp_f_grid_lag3 )) #,
+                               #temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
+  o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3 )) #,
+                             #o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
+  
+  # define lagged basis spline
+  exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
+  # pm basis
+  pm_basis <- pm_mat %*% exp_b
+  # temp basis
+  temp_basis <- temp_mat %*% exp_b
+  # ozone basis
+  o3_basis <- o3_mat %*% exp_b
+  
+  # run lagged model
+  lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
+
+  # estimate lag estimate
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
+  return(lag_est)
+  }) %>%  #end lappply
+  # bind rows
+  map_dfr(.,rbind) %>% 
+  # bind in outcome names
+  bind_cols(data.frame(out_rep), .) %>% 
+  mutate(event = 'Transport 2015: May 1st to July 31st')
+```
+
+```{r trans_death_cont_early}
+rep_times <- 2*4
+
+cod <- rep(names(co_death_list[c(1,4)]), each=rep_times)
+
+trans_death_cont_early <- lapply(co_death_list[c(1,4)], function(x){
+  # output dataframe from list
+  data <- x %>%     
+    filter(date >= '2015-05-01' & date <= '2015-07-31') %>% 
+    mutate(date = as.Date(date),
+           outcome = as.numeric(as.character(outcome))) %>%
+    # remove missing lagged data
+    filter(!is.na(gpm_smk10unit_lag5))
+
+  # create lagged matrix
+  pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3 )) #,
+                             #gpm_smk10unit_lag4, gpm_smk10unit_lag5))
+  
+  # temp matrix
+  temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
+                               temp_f_grid_lag2, temp_f_grid_lag3 )) #,
+                               #temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
+  o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3 )) #,
+                             #o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
+  
+  # define lagged basis spline
+  exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
+  # pm basis
+  pm_basis <- pm_mat %*% exp_b
+  # temp basis
+  temp_basis <- temp_mat %*% exp_b
+  # ozone basis
+  o3_basis <- o3_mat %*% exp_b
+  
+  # run lagged model
+  lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
+
+  # estimate lag estimate
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
+  return(lag_est)
+  }) %>%  #end lappply
+  # bind rows
+  map_dfr(.,rbind) %>% 
+  # bind in outcome names
+  bind_cols(data.frame(cod), .) %>% 
+  mutate(event = 'Transport 2015: May 1st to July 31st')
+```
+
+Local fires early
+```{r local_hosp_results_early}
+rep_times <- 2*4 # 3 day
+out_rep <- rep(outcome, each = rep_times)
+
+local_hosp_cont_early <-lapply(co_hosp_list, function(x){
+  # output dataframe from list
+  data <- x %>% 
+    filter(date >= '2012-05-01' & date <= '2012-07-31') %>% 
+    mutate(date = as.Date(date),
+           outcome = as.numeric(as.character(outcome))) %>%
+    # remove missing lagged data
+    filter(!is.na(gpm_smk10unit_lag5))
+
+  # create lagged matrix
+  pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3)) # ,
+                             #gpm_smk10unit_lag4, gpm_smk10unit_lag5))
+  
+  # temp matrix
+  temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
+                               temp_f_grid_lag2, temp_f_grid_lag3)) #,
+                               #temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
+  o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3 ))#,
+                             #o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
+  
+  # define lagged basis spline
+  exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
+  # pm basis
+  pm_basis <- pm_mat %*% exp_b
+  # temp basis
+  temp_basis <- temp_mat %*% exp_b
+  # ozone basis
+  o3_basis <- o3_mat %*% exp_b
+  
+  # run lagged model
+  lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
+
+  # estimate lag estimate
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
+  return(lag_est)
+  }) %>%  #end lappply
+  # bind rows
+  map_dfr(.,rbind) %>% 
+  # bind in outcome names
+  bind_cols(data.frame(out_rep), .) %>% 
+  mutate(event = 'Local 2012: May 1st to July 31st')
+```
+
+```{r local_deaths_early}
+rep_times <- 2*4
+cod <- rep(names(co_death_list[c(1,4)]), each=rep_times)
+
+local_death_cont_early <- lapply(co_death_list[c(1,4)], function(x){
+  # output dataframe from list
+  data <- x %>%     
+    filter(date >= '2012-05-01' & date <= '2012-07-31') %>% 
+    mutate(date = as.Date(date),
+           outcome = as.numeric(as.character(outcome))) %>%
+    # remove missing lagged data
+    filter(!is.na(gpm_smk10unit_lag5))
+
+  # create lagged matrix
+  pm_mat <- as.matrix(dplyr::select(data, gpm_smk10unit, gpm_smk10unit_lag1, 
+                             gpm_smk10unit_lag2, gpm_smk10unit_lag3))#,
+                             #gpm_smk10unit_lag4, gpm_smk10unit_lag5))
+  
+  # temp matrix
+  temp_mat <- as.matrix(dplyr::select(data, temp_f_grid, temp_f_grid_lag1,
+                               temp_f_grid_lag2, temp_f_grid_lag3 )) #,
+                               #temp_f_grid_lag4, temp_f_grid_lag5))
+    # ozone matrix
+  o3_mat <- as.matrix(dplyr::select(data, o3_8hr_max_ppb, o3_8hr_max_ppb_lag1,
+                             o3_8hr_max_ppb_lag2, o3_8hr_max_ppb_lag3 )) #,
+                             #o3_8hr_max_ppb_lag4, o3_8hr_max_ppb_lag5))
+  
+  # define lagged basis spline
+  exp_b <- splines::ns(0:(ncol(pm_mat)-1), df = 3, intercept = T)
+  # pm basis
+  pm_basis <- pm_mat %*% exp_b
+  # temp basis
+  temp_basis <- temp_mat %*% exp_b
+  # ozone basis
+  o3_basis <- o3_mat %*% exp_b
+  
+  # run lagged model
+  lag_mod <- clogit(outcome ~ pm_basis + temp_basis + o3_basis + strata(id), data = data)
+
+  # estimate lag estimate
+  lag_est <- distribute_that_lag(lag_mod, strata = "pm", exp_b=exp_b) 
+  return(lag_est)
+  }) %>%  #end lappply
+  # bind rows
+  map_dfr(.,rbind) %>% 
+  # bind in outcome names
+  bind_cols(data.frame(cod), .) %>% 
+  mutate(event = 'Local 2012: May 1st to July 31st')
+```
+
+#### Late Season Fires
+Restricting to Late Season Fires August 1st to Oct 31st.
+
+```{r transport_hosp_results_late}
+rep_times <- 2*4
+out_rep <- rep(outcome, each = rep_times)
+
+trans_hosp_cont_late <-lapply(co_hosp_list, function(x){
   # output dataframe from list
   data <- x %>% 
     filter(date >= '2015-08-01' & date <= '2015-10-31') %>% 
@@ -2641,12 +3061,12 @@ trans_hosp_cont_v2 <-lapply(co_hosp_list, function(x){
   mutate(event = 'Transport 2015: August 1st to October 31st')
 ```
 
-```{r trans_death_cont_v2}
+```{r trans_death_cont_late}
 rep_times <- 2*4
 
 cod <- rep(names(co_death_list[c(1,4)]), each=rep_times)
 
-trans_death_cont_v2 <- lapply(co_death_list[c(1,4)], function(x){
+trans_death_cont_late <- lapply(co_death_list[c(1,4)], function(x){
   # output dataframe from list
   data <- x %>%     
     filter(date >= '2015-08-01' & date <= '2015-10-31') %>% 
@@ -2692,12 +3112,12 @@ trans_death_cont_v2 <- lapply(co_death_list[c(1,4)], function(x){
   mutate(event = 'Transport 2015: August 1st to October 31st')
 ```
 
-Local fires v2
-```{r local_hosp_results_v2}
+Local fires late
+```{r local_hosp_results_late}
 rep_times <- 2*4 # 3 day
 out_rep <- rep(outcome, each = rep_times)
 
-local_hosp_cont_v2 <-lapply(co_hosp_list, function(x){
+local_hosp_cont_late <-lapply(co_hosp_list, function(x){
   # output dataframe from list
   data <- x %>% 
     filter(date >= '2012-08-01' & date <= '2012-10-31') %>% 
@@ -2743,11 +3163,11 @@ local_hosp_cont_v2 <-lapply(co_hosp_list, function(x){
   mutate(event = 'Local 2012: August 1st to October 31st')
 ```
 
-```{r local_deaths_v2}
+```{r local_deaths_late}
 rep_times <- 2*4
 cod <- rep(names(co_death_list[c(1,4)]), each=rep_times)
 
-local_death_cont_v2 <- lapply(co_death_list[c(1,4)], function(x){
+local_death_cont_late <- lapply(co_death_list[c(1,4)], function(x){
   # output dataframe from list
   data <- x %>%     
     filter(date >= '2012-08-01' & date <= '2012-10-31') %>% 
@@ -2795,10 +3215,10 @@ local_death_cont_v2 <- lapply(co_death_list[c(1,4)], function(x){
 
 Hospitalization plots.
 
-```{r hosp_event_plot_V2}
+```{r hosp_event_plot_late}
 # bind event dataframes together
-hosp_event_v2 <- bind_rows(waldo_hosp_cont, hipark_hosp_cont, local_hosp_cont_v2,
-                        trans_hosp_cont_v2) %>% 
+hosp_event_late <- bind_rows(waldo_hosp_cont, hipark_hosp_cont, local_hosp_cont_late,
+                        trans_hosp_cont_late) %>% 
   filter(type == 'cumulative' & time == 3) %>% 
   dplyr::select(-strata, -time) %>% 
   mutate(outcome = forcats::fct_relevel(out_rep, out_order),
@@ -2807,7 +3227,99 @@ hosp_event_v2 <- bind_rows(waldo_hosp_cont, hipark_hosp_cont, local_hosp_cont_v2
          # ordering fire event
          event = forcats::fct_relevel(event, c('Waldo Canyon 2012', 'High Park 2012',
                                                'Local 2012: August 1st to October 31st',
-                                               'Transport 2012: August 1st to October 31st'))) %>% 
+                                               'Transport 2015: August 1st to October 31st'))) %>% 
+  # filter out acute bronchitis
+  filter(outcome != 'Acute Bronchitis')
+
+# plot
+hosp_event_plot_late <- ggplot(data = hosp_event_late, 
+                          aes(x=outcome, y=odds_ratio, color = group)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lower_95, ymax=upper_95), width = 0.3) +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = "red") +
+  facet_wrap(~event, scales = 'free_y') +  
+  scale_color_manual("Cardiopulmonary", values = c("#ff00cc", "darkblue")) +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = "red") +
+  ylab(expression(paste("Odds Ratio: 10", mu, "g/m"^3, " Increase in Smoke PM"[2.5]))) +
+  xlab("Outcome") +
+  theme_bw()+
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_line(linetype = "dotted"),
+        panel.grid.minor = element_blank(),        
+        legend.direction = 'horizontal',
+        legend.position = 'bottom',
+        strip.background = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=0.95, vjust = 0.75,
+                                   size = 10))
+  
+print(hosp_event_plot_late)
+```
+
+Deaths transport vs local limited to august 1st to october 31st
+
+Plotting underlying cause of death by fire events.
+
+```{r mortality_event_plot_late}
+# bind event dataframes together
+death_event_late <- bind_rows(waldo_death_cont, hipark_death_cont, local_death_cont_late,
+                        trans_death_cont_late) %>% 
+  filter(type == 'cumulative' & time == 3) %>% 
+  dplyr::select(-strata, -time) %>% 
+  mutate(outcome = as.factor(if_else(cod == 'resp', 
+                                     'Respiratory', 'Cardiovascular')),
+         # ordering fire event
+         event = forcats::fct_relevel(event, c('Waldo Canyon 2012', 'High Park 2012',
+                                               'Local 2012: August 1st to October 31st', 
+                                               'Transport 2015: August 1st to October 31st'))) 
+
+# plot
+death_event_plot_late <- ggplot(data = death_event_late, 
+                          aes(x=outcome, y=odds_ratio, color = outcome)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lower_95, ymax=upper_95), width = 0.3) +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = "red") +
+  facet_wrap(~event) +  
+  scale_color_manual("Cardiopulmonary", values = c("#ff00cc", "darkblue")) +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = "red") +
+  ylab(expression(paste("Odds Ratio: 10", mu, "g/m"^3, " Increase in Smoke PM"[2.5]))) +
+  xlab("Outcome") +
+  theme_bw()+
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_line(linetype = "dotted"),
+        panel.grid.minor = element_blank(),        
+        legend.direction = 'horizontal',
+        legend.position = 'bottom',
+        strip.background = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=0.95, vjust = 0.75,
+                                   size = 10))
+  
+print(death_event_plot_late)
+```
+
+### Early Season vs. Late Season Fires
+
+Hospitalization plots.
+
+```{r hosp_event_plot_v2}
+# bind event dataframes together
+hosp_event_v2 <- bind_rows(local_hosp_cont_early, trans_hosp_cont_early, 
+                           local_hosp_cont_late, trans_hosp_cont_late) %>% 
+  filter(type == 'cumulative' & time == 3) %>% 
+  dplyr::select(-strata, -time) %>% 
+  mutate(outcome = forcats::fct_relevel(out_rep, out_order),
+         group = as.factor(if_else(outcome %in% out_order[1:5],
+         "Respiratory", "Cardiovascular")),
+         # ordering fire event
+         event = factor(
+           event, 
+           levels = c(
+             'Local 2012: May 1st to July 31st',
+             'Transport 2015: May 1st to July 31st',
+             'Local 2012: August 1st to October 31st',
+             'Transport 2015: August 1st to October 31st'
+             )
+           )
+         ) %>% 
   # filter out acute bronchitis
   filter(outcome != 'Acute Bronchitis')
 
@@ -2832,25 +3344,69 @@ hosp_event_plot_v2 <- ggplot(data = hosp_event_v2,
         axis.text.x = element_text(angle = 45, hjust=0.95, vjust = 0.75,
                                    size = 10))
   
+
+ggsave(
+  filename = '../analysis/figures/fig6_local_vs_transport.pdf',
+  plot = hosp_event_plot_v2,
+  height = 6,
+  width = 8,
+  unit = 'in'
+)
+
+ggsave(
+  filename = '../analysis/figures/fig6_local_vs_transport.png',
+  plot = hosp_event_plot_v2,
+  height = 6,
+  width = 8,
+  unit = 'in',
+  dpi = 300
+)
+
+
 print(hosp_event_plot_v2)
 ```
 
-Deaths transport vs local limited to august 1st to october 31st
+Printing out effect estimates in plots.
 
-Plotting underlying cause of death by fire events.
+Table of age-specific associations.
 
-```{r mortality_event_plot_v2}
+```{r transport_age_specific_death_tabs}
+knitr::kable(dplyr::select(cumulative_age_death_strata, 
+                    outcome, age_long, odds_ratio:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
+             caption = 'Age-specific associations between smoke and underlying cause of death')
+```
+
+Print out table of effect estimates.
+```{r hosp_event_effect_estimates_tabs}
+
+knitr::kable(dplyr::select(hosp_event_v2, 
+                    event, outcome, type, odds_ratio:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
+             caption = 'Local and Transport Hospitalization Effect Estimates')
+```
+
+Mortality plot.
+
+```{r mortality_event_plot_late_v2}
 # bind event dataframes together
-death_event_v2 <- bind_rows(waldo_death_cont, hipark_death_cont, local_death_cont_v2,
-                        trans_death_cont_v2) %>% 
+death_event_v2 <- bind_rows(local_death_cont_early, trans_death_cont_early, 
+                            local_death_cont_late, trans_death_cont_late) %>% 
   filter(type == 'cumulative' & time == 3) %>% 
   dplyr::select(-strata, -time) %>% 
   mutate(outcome = as.factor(if_else(cod == 'resp', 
                                      'Respiratory', 'Cardiovascular')),
          # ordering fire event
-         event = forcats::fct_relevel(event, c('Waldo Canyon 2012', 'High Park 2012',
-                                               'Local 2012: August 1st to October 31st', 
-                                               'Transport 2012: August 1st to October 31st'))) 
+         event = factor(
+           event, 
+           levels = c(
+             'Local 2012: May 1st to July 31st',
+             'Transport 2015: May 1st to July 31st',
+             'Local 2012: August 1st to October 31st',
+             'Transport 2015: August 1st to October 31st'
+             )
+           ) 
+         )
 
 # plot
 death_event_plot_v2 <- ggplot(data = death_event_v2, 
@@ -2875,7 +3431,13 @@ death_event_plot_v2 <- ggplot(data = death_event_v2,
   
 print(death_event_plot_v2)
 ```
-
+Print out table of mortality effect estimates.
+```{r mortality_event_effect_estimates_tabs}
+knitr::kable(dplyr::select(death_event_v2, 
+                    event, outcome, type, odds_ratio:upper_95) %>%
+    mutate_at(vars(odds_ratio:upper_95), ~round(.x, 3)),
+             caption = 'Local and Transport Mortality Effect Estimates')
+```
 
 ## Conclusions
 
